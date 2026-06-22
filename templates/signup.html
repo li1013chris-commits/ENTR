@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Sign Up{% endblock %}
+
+{% block content %}
+<div class="form-wrap">
+  <div class="form-card">
+    <h1 class="form-title" data-i18n="signup.title"></h1>
+    <p class="form-subtitle" data-i18n="signup.subtitle"></p>
+
+    <!-- Role Tabs -->
+    <div class="role-tabs" role="tablist">
+      <button type="button" class="role-tab active" data-role="employer" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        <span class="role-tab-label" data-i18n="signup.employer.label"></span>
+        <span class="role-tab-desc" data-i18n="signup.employer.desc"></span>
+      </button>
+      <button type="button" class="role-tab" data-role="worker" role="tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span class="role-tab-label" data-i18n="signup.worker.label"></span>
+        <span class="role-tab-desc" data-i18n="signup.worker.desc"></span>
+      </button>
+    </div>
+
+    <form method="POST" action="{{ url_for('signup') }}">
+      <input type="hidden" name="role" id="role-input" value="employer" />
+
+      <!-- Common fields -->
+      <div class="form-group">
+        <label><span data-i18n="signup.email"></span><span class="req">*</span></label>
+        <input type="email" name="email" required autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label><span data-i18n="signup.password"></span><span class="req">*</span></label>
+        <input type="password" name="password" required autocomplete="new-password" minlength="6" />
+      </div>
+
+      <!-- Employer-specific fields -->
+      <div id="employer-fields" data-role-fields="employer">
+        <div class="form-section-label">Restaurant Details</div>
+
+        <div class="form-group">
+          <label>Owner Name<span class="req">*</span></label>
+          <input type="text" name="name" id="employer-name" autocomplete="name" />
+        </div>
+        <div class="form-group">
+          <label>Restaurant Name</label>
+          <input type="text" name="restaurant_name" autocomplete="organization" />
+        </div>
+        <div class="form-group">
+          <label data-i18n="signup.phone"></label>
+          <input type="tel" name="phone" autocomplete="tel" />
+        </div>
+        <div class="form-group">
+          <label>Address</label>
+          <input type="text" name="address" autocomplete="street-address" />
+        </div>
+        <div class="form-group">
+          <label data-i18n="signup.language"></label>
+          <select name="language_pref">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="zh">中文</option>
+            <option value="fr">Français</option>
+            <option value="pt">Português</option>
+            <option value="vi">Tiếng Việt</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Years in Operation</label>
+          <input type="number" name="years_operation" min="0" max="100" placeholder="e.g. 5" />
+        </div>
+      </div>
+
+      <!-- Worker-specific fields -->
+      <div id="worker-fields" data-role-fields="worker" style="display:none">
+        <div class="form-section-label">Your Information</div>
+
+        <div class="form-group">
+          <label><span data-i18n="signup.name"></span><span class="req">*</span></label>
+          <input type="text" name="worker_name" id="worker-name" autocomplete="name" />
+        </div>
+        <div class="form-group">
+          <label data-i18n="signup.phone"></label>
+          <input type="tel" name="worker_phone" autocomplete="tel" />
+        </div>
+        <div class="form-group">
+          <label data-i18n="signup.language"></label>
+          <select name="worker_language_pref">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="zh">中文</option>
+            <option value="fr">Français</option>
+            <option value="pt">Português</option>
+            <option value="vi">Tiếng Việt</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Years of Experience</label>
+          <input type="number" name="years_experience" min="0" max="50" placeholder="e.g. 3" />
+        </div>
+        <div class="form-group">
+          <label>Availability</label>
+          <input type="text" name="availability" placeholder="e.g. Full-time, Weekends, Evenings" />
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width:100%; margin-top:8px" data-i18n="signup.submit"></button>
+    </form>
+
+    <p style="text-align:center; margin-top:22px; color:var(--text-muted); font-size:13.5px; font-weight:300">
+      <span data-i18n="signup.login"></span>
+      <a href="{{ url_for('login') }}" style="color:var(--accent); font-weight:500; margin-left:4px" data-i18n="nav.login"></a>
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Role tabs with dynamic fields
+  (function() {
+    const tabs = document.querySelectorAll('.role-tab');
+    const roleInput = document.getElementById('role-input');
+    const employerName = document.getElementById('employer-name');
+    const workerName   = document.getElementById('worker-name');
+
+    function selectRole(role) {
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.role === role));
+      roleInput.value = role;
+
+      document.querySelectorAll('[data-role-fields]').forEach(el => {
+        const show = el.dataset.roleFields === role;
+        el.style.display = show ? 'block' : 'none';
+        // Sync required attribute so form validates correctly
+        el.querySelectorAll('input[required], select[required]').forEach(inp => {
+          inp.required = show;
+        });
+      });
+
+      // Keep a single hidden "name" field in sync for the backend
+      if (role === 'employer' && employerName) {
+        employerName.closest('.form-group').querySelector('input').name = 'name';
+      }
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => selectRole(tab.dataset.role));
+    });
+
+    // Pre-select from URL query param
+    const urlRole = new URLSearchParams(window.location.search).get('role');
+    selectRole(urlRole === 'worker' ? 'worker' : 'employer');
+  })();
+</script>
+{% endblock %}

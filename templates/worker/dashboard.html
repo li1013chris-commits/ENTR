@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-wide">
+  <div class="page-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px">
+    <div>
+      <h1 data-i18n="worker.dashboard.title"></h1>
+      <p data-i18n="worker.dashboard.subtitle"></p>
+    </div>
+    <div style="display:flex; gap:10px">
+      <a href="{{ url_for('worker_profile') }}" class="btn btn-outline btn-sm" data-i18n="nav.profile"></a>
+      <a href="{{ url_for('browse_jobs') }}" class="btn btn-primary" data-i18n="worker.browseBtn"></a>
+    </div>
+  </div>
+
+  {% if applications %}
+    {% for app in applications %}
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">{{ app.title }}</div>
+          <div class="card-meta">
+            {{ app.restaurant_name or app.employer_name }}
+            {% if app.location %}&bull; {{ app.location }}{% endif %}
+            &bull; {{ app.pay }} &bull; {{ app.hours }}
+          </div>
+        </div>
+        <span class="badge badge-{{ app.status }}" data-i18n="status.{{ app.status }}"></span>
+      </div>
+
+      {% if app.ai_score is not none %}
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px">
+        <div class="score-circle" data-score="{{ app.ai_score }}" style="width:40px;height:40px;font-size:14px">{{ app.ai_score }}</div>
+        <div style="font-size:14px; color:var(--text-muted)">AI match score</div>
+      </div>
+      {% endif %}
+
+      {% if app.ai_summary %}
+      <div class="ai-block" style="margin-top:10px">
+        <div class="ai-block-label" data-i18n="applications.summary"></div>
+        <p>{{ app.ai_summary }}</p>
+      </div>
+      {% endif %}
+
+      <div style="font-size:13px; color:var(--text-muted); margin-top:12px">Applied {{ (app.created_at | string)[:10] if app.created_at else '' }}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <div class="icon">🔍</div>
+      <h3 data-i18n="worker.noApps"></h3>
+      <p data-i18n="worker.noApps.desc"></p>
+      <br/>
+      <a href="{{ url_for('browse_jobs') }}" class="btn btn-primary" data-i18n="worker.browseBtn"></a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

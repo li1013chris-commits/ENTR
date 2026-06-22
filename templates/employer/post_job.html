@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Post a Job{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="form-card" style="max-width: 600px">
+    <h1 class="form-title" data-i18n="postjob.title"></h1>
+    <p class="form-subtitle" data-i18n="postjob.subtitle"></p>
+
+    <form method="POST" action="{{ url_for('post_job') }}">
+
+      <div class="form-group">
+        <label><span data-i18n="postjob.position"></span><span class="req">*</span></label>
+        <input type="text" name="title" required placeholder="e.g. Line Cook, Server, Dishwasher" />
+      </div>
+
+      <div class="form-group">
+        <label><span data-i18n="postjob.pay"></span><span class="req">*</span></label>
+        <input type="text" name="pay" required />
+        <div class="form-hint" data-i18n="postjob.pay.hint"></div>
+      </div>
+
+      <div class="form-group">
+        <label><span data-i18n="postjob.hours"></span><span class="req">*</span></label>
+        <input type="text" name="hours" required />
+        <div class="form-hint" data-i18n="postjob.hours.hint"></div>
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="postjob.experience"></label>
+        <input type="number" name="experience_required" value="0" min="0" max="30" />
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="postjob.language"></label>
+        <input type="text" name="language_preference" />
+        <div class="form-hint" data-i18n="postjob.language.hint"></div>
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="postjob.location"></label>
+        <input type="text" name="location" placeholder="e.g. Brooklyn, NY" />
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="postjob.description"></label>
+        <textarea name="description" rows="4"></textarea>
+      </div>
+
+      <div style="display:flex; gap:12px; flex-wrap:wrap">
+        <button type="submit" class="btn btn-primary" data-i18n="postjob.submit"></button>
+        <a href="{{ url_for('employer_dashboard') }}" class="btn btn-secondary" data-i18n="applications.back"></a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

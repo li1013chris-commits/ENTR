@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}My Profile{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="form-card" style="max-width:560px">
+    <h1 class="form-title" data-i18n="profile.title"></h1>
+    <p class="form-subtitle" data-i18n="profile.subtitle"></p>
+
+    <form method="POST" action="{{ url_for('worker_profile') }}">
+      <div class="form-group">
+        <label data-i18n="profile.bio"></label>
+        <textarea name="bio" rows="5">{{ user.bio or '' }}</textarea>
+        <div class="form-hint" data-i18n="profile.bio.hint"></div>
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="profile.years"></label>
+        <input type="number" name="experience_years" value="{{ user.experience_years or 0 }}" min="0" max="50" />
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="profile.languages"></label>
+        <input type="text" name="languages_spoken" value="{{ user.languages_spoken or '' }}" />
+        <div class="form-hint" data-i18n="profile.languages.hint"></div>
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="profile.phone"></label>
+        <input type="tel" name="phone" value="{{ user.phone or '' }}" />
+      </div>
+
+      <div style="display:flex; gap:12px; flex-wrap:wrap">
+        <button type="submit" class="btn btn-primary" data-i18n="profile.save"></button>
+        <a href="{{ url_for('worker_dashboard') }}" class="btn btn-secondary" data-i18n="nav.dashboard"></a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Log In{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="form-card">
+    <h1 class="form-title" data-i18n="login.title"></h1>
+    <p class="form-subtitle" data-i18n="login.subtitle"></p>
+
+    <form method="POST" action="{{ url_for('login') }}">
+      <div class="form-group">
+        <label><span data-i18n="login.email"></span><span class="req">*</span></label>
+        <input type="email" name="email" required autocomplete="email" />
+      </div>
+
+      <div class="form-group">
+        <label><span data-i18n="login.password"></span><span class="req">*</span></label>
+        <input type="password" name="password" required autocomplete="current-password" />
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width:100%" data-i18n="login.submit"></button>
+    </form>
+
+    <p style="text-align:center; margin-top:20px; color: var(--text-muted); font-size:15px">
+      <span data-i18n="login.signup"></span>
+      <a href="{{ url_for('signup') }}" style="color: var(--accent); font-weight:600"> <span data-i18n="nav.signup"></span></a>
+    </p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}{{ job.title }} at {{ job.restaurant_name or job.employer_name }}{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="job-detail-card" style="max-width:600px">
+    <div style="margin-bottom:32px">
+      <h1 class="form-title">{{ job.title }}</h1>
+      <p class="form-subtitle">{{ job.restaurant_name or job.employer_name }}</p>
+      {% if job.location %}<p style="color:#6b7280; margin-bottom:16px">{{ job.location }}</p>{% endif %}
+    </div>
+
+    <div class="card" style="margin-bottom:24px; background:#f8f9fa; box-shadow:none; padding:16px">
+      <div class="info-grid" style="margin:0">
+        <div class="info-item">
+          <label data-i18n="browse.pay"></label>
+          <div class="value">{{ job.pay }}</div>
+        </div>
+        <div class="info-item">
+          <label data-i18n="browse.hours"></label>
+          <div class="value">{{ job.hours }}</div>
+        </div>
+        {% if job.experience_required %}
+        <div class="info-item">
+          <label data-i18n="browse.experience"></label>
+          <div class="value">{{ job.experience_required }} <span data-i18n="years.abbr"></span></div>
+        </div>
+        {% endif %}
+        {% if job.language_preference %}
+        <div class="info-item">
+          <label data-i18n="browse.language"></label>
+          <div class="value">{{ job.language_preference }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if job.description %}
+    <div style="margin-bottom:32px">
+      <h2 style="font-size:16px; margin-bottom:12px; font-weight:600">Details</h2>
+      <p style="white-space:pre-wrap; line-height:1.6">{{ job.description }}</p>
+    </div>
+    {% endif %}
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap">
+      {% if user and user.role == 'worker' %}
+        {% if applied %}
+          <button class="btn btn-primary" disabled data-i18n="browse.applied"></button>
+        {% else %}
+          <a href="{{ url_for('apply_job', job_id=job.id) }}" class="btn btn-primary" data-i18n="browse.apply"></a>
+        {% endif %}
+      {% else %}
+        <a href="{{ url_for('signup') }}" class="btn btn-primary">Sign up to apply</a>
+      {% endif %}
+      <button onclick="shareJob({{ job.id }})" class="btn btn-secondary">Share</button>
+      <a href="{{ url_for('index') }}" class="btn btn-secondary" data-i18n="common.back"></a>
+    </div>
+
+    <p style="margin-top:24px; font-size:13px; color:#6b7280">
+      Contact information will be shared only after you apply and create an account.
+    </p>
+  </div>
+</div>
+
+<script>
+function shareJob(jobId) {
+  const url = window.location.href;
+  const qrcodeUrl = `/api/jobs/${jobId}/qrcode`;
+
+  if (navigator.share) {
+    navigator.share({
+      title: 'Job Listing',
+      url: url
+    });
+  } else {
+    alert('Copy this link:\n' + url);
+  }
+}
+</script>
+{% endblock %}

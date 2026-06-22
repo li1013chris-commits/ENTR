@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% block title %}ENTR{% endblock %}
+
+{% block content %}
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-content">
+      <div class="hero-badge">AI-Powered &nbsp;·&nbsp; 6 Languages</div>
+      <h1 class="hero-heading">
+        <span data-i18n="hero.title1">Hire the right talent for your</span><br/>
+        <em data-i18n="hero.title2">restaurant</em>
+      </h1>
+      <p class="hero-sub" data-i18n="hero.subtitle"></p>
+      <div class="hero-actions">
+        <a href="{{ url_for('signup') }}?role=employer"
+           class="btn btn-primary btn-lg" data-i18n="hero.employer"></a>
+        <a href="{{ url_for('signup') }}?role=worker"
+           class="btn btn-navy btn-lg" data-i18n="hero.worker"></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero-browser-wrap">
+    <div class="hero-browser">
+      <div class="hero-browser-chrome">
+        <div class="hero-browser-dots"><span></span><span></span><span></span></div>
+        <div class="hero-browser-url">entr.app/employer/dashboard</div>
+      </div>
+      <div class="hero-app-nav">
+        <span class="hero-app-nav-brand">EN<span>TR</span></span>
+        <div class="hero-app-nav-right">
+          <span class="hero-app-nav-link">Dashboard</span>
+          <span class="hero-app-nav-link">Applications</span>
+          <span class="hero-app-nav-btn">Post a Job</span>
+        </div>
+      </div>
+      <div class="hero-app-body">
+        <div class="hero-app-sidebar">
+          <div class="hero-app-sidebar-label">Active Listings</div>
+          <div class="hero-sidebar-job active">
+            <div class="hero-sidebar-job-title">Line Cook</div>
+            <div class="hero-sidebar-job-meta">
+              <span class="hero-sidebar-badge">Open</span> 5 applicants
+            </div>
+          </div>
+          <div class="hero-sidebar-job">
+            <div class="hero-sidebar-job-title">Prep Cook</div>
+            <div class="hero-sidebar-job-meta">
+              <span class="hero-sidebar-badge">Open</span> 2 applicants
+            </div>
+          </div>
+          <div class="hero-sidebar-job">
+            <div class="hero-sidebar-job-title">Dishwasher</div>
+            <div class="hero-sidebar-job-meta">
+              <span class="hero-sidebar-badge">Open</span> 1 applicant
+            </div>
+          </div>
+        </div>
+        <div class="hero-app-main">
+          <div class="hero-app-main-title">
+            Applications for Line Cook
+            <span>AI Ranked &bull; 5 results</span>
+          </div>
+          <div class="hero-app-row">
+            <div class="hero-app-score has-h">87</div>
+            <div class="hero-app-info">
+              <div class="hero-app-name">Maria Garcia</div>
+              <div class="hero-app-ai-tag">AI Summary</div>
+              <div class="hero-app-ai-text">Strong match. 5 years kitchen experience, bilingual EN/ES, available immediately.</div>
+              <div class="hero-app-bar"><div class="hero-app-fill hf-h" style="width:87%"></div></div>
+            </div>
+          </div>
+          <div class="hero-app-row">
+            <div class="hero-app-score has-m">64</div>
+            <div class="hero-app-info">
+              <div class="hero-app-name">James Tran</div>
+              <div class="hero-app-ai-tag">AI Summary</div>
+              <div class="hero-app-ai-text">Good candidate. 3 years experience, English only, available weekends and evenings.</div>
+              <div class="hero-app-bar"><div class="hero-app-fill hf-m" style="width:64%"></div></div>
+            </div>
+          </div>
+          <div class="hero-app-row">
+            <div class="hero-app-score has-l">31</div>
+            <div class="hero-app-info">
+              <div class="hero-app-name">Alex Patel</div>
+              <div class="hero-app-ai-tag">AI Summary</div>
+              <div class="hero-app-ai-text">Limited experience. No prior kitchen or food service work mentioned in application.</div>
+              <div class="hero-app-bar"><div class="hero-app-fill hf-l" style="width:31%"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Why ENTR: Tabbed feature section ── -->
+<section class="features-tabbed">
+  <div class="features-tabbed-inner">
+    <div class="section-eyebrow" data-animate>WHY ENTR</div>
+    <h2 class="section-title" data-animate data-delay="1" data-i18n="landing.whyTitle"></h2>
+    <p class="features-intro" data-animate data-delay="2">
+      Most hiring tools were built for corporate HR teams. ENTR was built for you: the restaurant owner juggling a full kitchen, a language barrier, and no time to waste.
+    </p>
+
+    <div class="tab-layout" data-animate data-delay="3">
+
+      <!-- Left: numbered tab navigation -->
+      <nav class="tab-nav" role="tablist">
+        <button class="tab-btn active" data-tab="ai" role="tab" aria-selected="true">
+          <span class="tab-num">01</span>
+          <div class="tab-label">
+            <div class="tab-title" data-i18n="hero.feature1.title"></div>
+            <div class="tab-desc" data-i18n="hero.feature1.desc"></div>
+          </div>
+        </button>
+        <button class="tab-btn" data-tab="multilingual" role="tab" aria-selected="false">
+          <span class="tab-num">02</span>
+          <div class="tab-label">
+            <div class="tab-title" data-i18n="hero.feature2.title"></div>
+            <div class="tab-desc" data-i18n="hero.feature2.desc"></div>
+          </div>
+        </button>
+        <button class="tab-btn" data-tab="fast" role="tab" aria-selected="false">
+          <span class="tab-num">03</span>
+          <div class="tab-label">
+            <div class="tab-title" data-i18n="hero.feature3.title"></div>
+            <div class="tab-desc" data-i18n="hero.feature3.desc"></div>
+          </div>
+        </button>
+      </nav>
+
+      <!-- Right: panels with navy background + floating UI cards -->
+      <div class="tab-panels">
+
+        <!-- Panel 01: AI Screening -->
+        <div class="tab-panel active" data-panel="ai">
+          <div class="feat-panel-bg">
+            <div class="feat-card-stack">
+              <div class="feat-card">
+                <div class="feat-card-header">Applications - AI Ranked</div>
+                <div class="feat-rank-row">
+                  <div class="feat-score feat-score-h">87</div>
+                  <div style="flex:1;min-width:0">
+                    <div class="feat-rank-name">Maria Garcia</div>
+                    <div class="feat-rank-bar"><div class="feat-rank-fill feat-fill-h" style="width:87%"></div></div>
+                  </div>
+                  <span class="feat-badge feat-badge-green">Verified</span>
+                </div>
+                <div class="feat-rank-row">
+                  <div class="feat-score feat-score-m">64</div>
+                  <div style="flex:1;min-width:0">
+                    <div class="feat-rank-name">James Tran</div>
+                    <div class="feat-rank-bar"><div class="feat-rank-fill feat-fill-m" style="width:64%"></div></div>
+                  </div>
+                  <span class="feat-badge feat-badge-gray">Pending</span>
+                </div>
+                <div class="feat-rank-row">
+                  <div class="feat-score feat-score-l">31</div>
+                  <div style="flex:1;min-width:0">
+                    <div class="feat-rank-name">Alex Patel</div>
+                    <div class="feat-rank-bar"><div class="feat-rank-fill feat-fill-l" style="width:31%"></div></div>
+                  </div>
+                  <span class="feat-badge feat-badge-gray">Review</span>
+                </div>
+              </div>
+              <div class="feat-ai-pill">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#D4A853" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/>
+                  <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
+                  <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
+                  <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
+                  <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
+                </svg>
+                <span>Powered by Claude AI</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 02: Multilingual -->
+        <div class="tab-panel" data-panel="multilingual">
+          <div class="feat-panel-bg">
+            <div class="feat-card-stack">
+              <div class="feat-card">
+                <div class="feat-card-header">Available in 6 Languages</div>
+                <div class="feat-lang-grid">
+                  <div class="feat-lang on">EN</div>
+                  <div class="feat-lang">ES</div>
+                  <div class="feat-lang">ZH</div>
+                  <div class="feat-lang">FR</div>
+                  <div class="feat-lang">PT</div>
+                  <div class="feat-lang">VI</div>
+                </div>
+                <div class="feat-bubble">"Listo para aplicar. Enviar solicitud ahora."</div>
+              </div>
+              <div class="feat-card-secondary">
+                <div style="font-size:10.5px;color:var(--text-muted);margin-bottom:4px">Same message in English:</div>
+                <div style="font-size:12px;font-weight:600;color:var(--navy)">"Ready to apply. Submit your application now."</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 03: Fast and Simple -->
+        <div class="tab-panel" data-panel="fast">
+          <div class="feat-panel-bg">
+            <div class="feat-card-stack">
+              <div class="feat-card">
+                <div class="feat-card-header">Post a Job</div>
+                <div class="feat-form-field">
+                  <span class="feat-form-label">Position / Title</span>
+                  <div class="feat-form-val active">Line Cook<span class="mockup-cursor"></span></div>
+                </div>
+                <div class="feat-form-row">
+                  <div class="feat-form-field">
+                    <span class="feat-form-label">Pay</span>
+                    <div class="feat-form-val">$18/hr</div>
+                  </div>
+                  <div class="feat-form-field">
+                    <span class="feat-form-label">Hours</span>
+                    <div class="feat-form-val">Full-time</div>
+                  </div>
+                </div>
+                <div class="feat-form-field">
+                  <span class="feat-form-label">Location</span>
+                  <div class="feat-form-val">San Francisco, CA</div>
+                </div>
+                <div class="feat-success">
+                  <div class="feat-success-dot"></div>
+                  Posted in 47 seconds
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How It Works: activity feed style ── -->
+<section class="how-it-works">
+  <div class="how-it-works-inner">
+    <div class="how-header" data-animate>
+      <div class="section-eyebrow">HOW IT WORKS</div>
+      <h2 class="section-title" data-i18n="landing.howTitle"></h2>
+      <p class="section-subtitle" style="margin-bottom:0">From posting to hiring in minutes, not weeks.</p>
+    </div>
+
+    <div class="step-rows">
+
+      <!-- Step 01: Post a Job -->
+      <div class="step-row">
+        <div class="step-row-image" data-animate="left" style="background:transparent;box-shadow:none;overflow:visible;aspect-ratio:auto">
+          <div class="step-navy-bg">
+            <div class="act-notif-wrap">
+              <div class="act-notif">
+                <div class="act-tag">New job posted</div>
+                <div class="act-job-title-big">Line Cook</div>
+                <div class="act-job-meta">$18/hr &bull; Full-time &bull; San Francisco, CA</div>
+                <div class="act-live">
+                  <div class="act-live-dot"></div>
+                  Live in 47 seconds
+                </div>
+              </div>
+              <div class="act-notif-2">7 workers in your area will see this posting</div>
+            </div>
+          </div>
+        </div>
+        <div class="step-row-content" data-animate="right">
+          <div class="step-num-new">Step 01</div>
+          <h3 data-i18n="landing.step1.title"></h3>
+          <p data-i18n="landing.step1.desc"></p>
+        </div>
+      </div>
+
+      <!-- Step 02: Workers Apply -->
+      <div class="step-row step-row--reverse">
+        <div class="step-row-image" data-animate="right" style="background:transparent;box-shadow:none;overflow:visible;aspect-ratio:auto">
+          <div class="step-navy-bg">
+            <div class="act-notif-wrap">
+              <div class="act-notif">
+                <div class="act-header">
+                  <div class="act-avatar">MG</div>
+                  <div>
+                    <div class="act-name">Maria Garcia applied</div>
+                    <div class="act-time">2 minutes ago</div>
+                  </div>
+                </div>
+                <div class="act-chips">
+                  <span class="act-chip">5 yrs exp.</span>
+                  <span class="act-chip">Bilingual EN/ES</span>
+                  <span class="act-chip act-chip-gold">ID Verified</span>
+                </div>
+              </div>
+              <div class="act-notif-2">+4 more applicants this week</div>
+            </div>
+          </div>
+        </div>
+        <div class="step-row-content" data-animate="left">
+          <div class="step-num-new">Step 02</div>
+          <h3 data-i18n="landing.step2.title"></h3>
+          <p data-i18n="landing.step2.desc"></p>
+        </div>
+      </div>
+
+      <!-- Step 03: AI Ranks -->
+      <div class="step-row">
+        <div class="step-row-image" data-animate="left" style="background:transparent;box-shadow:none;overflow:visible;aspect-ratio:auto">
+          <div class="step-navy-bg">
+            <div class="act-notif-wrap">
+              <div class="act-notif">
+                <div class="act-tag">AI Ranked</div>
+                <div class="act-score-row">
+                  <div class="act-score-circle act-score-h">87</div>
+                  <div class="act-name-block">
+                    <div class="act-score-name">Maria Garcia</div>
+                    <div class="act-score-desc">Strong match. 5 yrs exp, bilingual EN/ES.</div>
+                    <div class="act-bar"><div class="act-bar-fill" style="width:87%"></div></div>
+                  </div>
+                  <span class="act-chip act-chip-green" style="margin-left:6px;flex-shrink:0">Verified</span>
+                </div>
+              </div>
+              <div class="act-notif-2">Claude AI reviewed 5 applications in 3 seconds</div>
+            </div>
+          </div>
+        </div>
+        <div class="step-row-content" data-animate="right">
+          <div class="step-num-new">Step 03</div>
+          <h3 data-i18n="landing.step3.title"></h3>
+          <p data-i18n="landing.step3.desc"></p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ── -->
+<section class="cta-band">
+  <div class="cta-band-inner" data-animate>
+    <h2 data-i18n="landing.cta.title"></h2>
+    <p data-i18n="landing.cta.sub"></p>
+    <div class="cta-band-actions">
+      <a href="{{ url_for('signup') }}?role=employer"
+         class="btn btn-primary btn-lg" data-i18n="landing.cta.employer"></a>
+      <a href="{{ url_for('signup') }}?role=worker"
+         class="btn btn-navy btn-lg" data-i18n="landing.cta.worker"></a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-wide">
+  <div class="page-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px">
+    <div>
+      <h1 data-i18n="employer.dashboard.title"></h1>
+      <p data-i18n="employer.dashboard.subtitle"></p>
+    </div>
+    <a href="{{ url_for('post_job') }}" class="btn btn-primary" data-i18n="employer.postjob.btn"></a>
+  </div>
+
+  {% if jobs %}
+    {% for job in jobs %}
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">{{ job.title }}</div>
+          <div class="card-meta">
+            {% if job.location %}{{ job.location }} &bull;{% endif %}
+            {{ job.pay }} &bull; {{ job.hours }}
+            {% if job.experience_required %}
+              &bull; {{ job.experience_required }} <span data-i18n="years.abbr"></span>
+            {% endif %}
+          </div>
+        </div>
+        <span class="badge badge-{{ job.status }}" data-i18n="status.{{ job.status }}"></span>
+      </div>
+
+      {% if job.description %}
+        <p style="color: var(--text-muted); font-size:15px; margin-bottom:12px">{{ job.description }}</p>
+      {% endif %}
+
+      {% if job.language_preference %}
+        <p style="font-size:14px; color:var(--text-muted)">🗣️ {{ job.language_preference }}</p>
+      {% endif %}
+
+      <div class="card-actions">
+        <a href="{{ url_for('view_applications', job_id=job.id) }}" class="btn btn-outline btn-sm">
+          <span data-i18n="employer.job.applications"></span>
+          ({{ job.application_count }})
+        </a>
+        <form method="POST" action="{{ url_for('toggle_job', job_id=job.id) }}" style="display:inline">
+          <button type="submit" class="btn btn-sm {{ 'btn-secondary' if job.status == 'open' else 'btn-success' }}">
+            <span data-i18n="{{ 'employer.job.close' if job.status == 'open' else 'employer.job.reopen' }}"></span>
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <div class="icon">📋</div>
+      <h3 data-i18n="employer.noJobs"></h3>
+      <p data-i18n="employer.noJobs.desc"></p>
+      <br/>
+      <a href="{{ url_for('post_job') }}" class="btn btn-primary" data-i18n="employer.postjob.btn"></a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

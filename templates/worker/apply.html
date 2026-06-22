@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Apply{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="form-card" style="max-width:560px">
+    <h1 class="form-title">
+      <span data-i18n="apply.title"></span> {{ job.title }}
+    </h1>
+    <p class="form-subtitle">
+      {{ job.restaurant_name or job.employer_name }}
+      {% if job.location %}&bull; {{ job.location }}{% endif %}
+    </p>
+
+    <div class="card" style="margin-bottom:24px; background:#f8f9fa; box-shadow:none; padding:16px">
+      <div class="info-grid" style="margin:0">
+        <div class="info-item">
+          <label data-i18n="browse.pay"></label>
+          <div class="value">{{ job.pay }}</div>
+        </div>
+        <div class="info-item">
+          <label data-i18n="browse.hours"></label>
+          <div class="value">{{ job.hours }}</div>
+        </div>
+        {% if job.experience_required %}
+        <div class="info-item">
+          <label data-i18n="browse.experience"></label>
+          <div class="value">{{ job.experience_required }} <span data-i18n="years.abbr"></span></div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('apply_job', job_id=job.id) }}">
+      <div class="form-group">
+        <label data-i18n="apply.coverletter"></label>
+        <textarea name="cover_letter" rows="6" data-i18n-placeholder="apply.coverletter.hint"></textarea>
+        <div class="form-hint" data-i18n="apply.coverletter.hint"></div>
+      </div>
+
+      <div style="display:flex; gap:12px; flex-wrap:wrap">
+        <button type="submit" class="btn btn-primary" data-i18n="apply.submit"></button>
+        <a href="{{ url_for('browse_jobs') }}" class="btn btn-secondary" data-i18n="apply.back"></a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

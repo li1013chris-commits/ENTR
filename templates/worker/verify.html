@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}Identity Verification{% endblock %}
+
+{% block content %}
+<div class="page" style="max-width:680px">
+
+  <div class="page-header">
+    <h1>Identity Verification</h1>
+    <p>Verify your identity to strengthen your applications. Takes about 2 minutes.</p>
+  </div>
+
+  <!-- Status banner if already verified or flagged -->
+  {% if verification %}
+    {% if verification.verification_status == 'verified' %}
+    <div style="background:#F0FDF4; border:1px solid #BBF7D0; border-radius:var(--r-lg);
+                padding:18px 20px; margin-bottom:28px; display:flex; align-items:center; gap:12px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+        <polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <div>
+        <div style="font-size:14px; font-weight:600; color:#15803D">Identity Verified</div>
+        <div style="font-size:13px; color:#166534; font-weight:300; margin-top:2px">
+          Your profile shows a verified badge on all applications.
+          {% if verification.verified_at %}Verified {{ verification.verified_at[:10] }}.{% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% elif verification.verification_status == 'flagged' %}
+    <div style="background:#FEF2F2; border:1px solid #FECACA; border-radius:var(--r-lg);
+                padding:18px 20px; margin-bottom:28px">
+      <div style="font-size:14px; font-weight:600; color:#B91C1C; margin-bottom:4px">Verification Issue</div>
+      <div style="font-size:13px; color:#7F1D1D; font-weight:300">
+        {{ verification.failure_reason or "Your verification could not be completed." }}
+      </div>
+      <form method="POST" action="{{ url_for('resubmit_verification') }}" style="margin-top:14px">
+        <button type="submit" class="btn btn-primary btn-sm">Start Over</button>
+      </form>
+    </div>
+
+    {% elif verification.verification_status == 'pending' and verification.selfie_path %}
+    <div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:var(--r-lg);
+                padding:18px 20px; margin-bottom:28px; display:flex; align-items:center; gap:12px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <div>
+        <div style="font-size:14px; font-weight:600; color:#D97706">Under Review</div>
+        <div style="font-size:13px; color:#92400E; font-weight:300; margin-top:2px">
+          Your documents have been submitted and are being reviewed. You can apply to jobs in the meantime.
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  <!-- Step indicators -->
+  <div style="display:flex; align-items:center; gap:0; margin-bottom:40px">
+    {% set s1_done = verification and verification.id_document_path %}
+    {% set s2_done = verification and verification.selfie_path %}
+
+    <div style="display:flex; align-items:center; gap:10px; flex:1">
+      <div style="width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
+                  justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;
+                  background: {{ '#D1FAE5' if s1_done else ('#0A0F1E' if step == 1 else 'var(--border)') }};
+                  color: {{ '#065F46' if s1_done else ('#fff' if step == 1 else 'var(--text-muted)') }}">
+        {% if s1_done %}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}1{% endif %}
+      </div>
+      <span style="font-size:13px; font-weight:{{ '600' if step == 1 else '400' }};
+                   color:{{ 'var(--navy)' if step == 1 or s1_done else 'var(--text-muted)' }}">
+        Government ID
+      </span>
+    </div>
+
+    <div style="height:1px; width:48px; background:var(--border); flex-shrink:0; margin:0 8px"></div>
+
+    <div style="display:flex; align-items:center; gap:10px; flex:1">
+      <div style="width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
+                  justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;
+                  background: {{ '#D1FAE5' if s2_done else ('#0A0F1E' if step == 2 else 'var(--border)') }};
+                  color: {{ '#065F46' if s2_done else ('#fff' if step == 2 else 'var(--text-muted)') }}">
+        {% if s2_done %}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}2{% endif %}
+      </div>
+      <span style="font-size:13px; font-weight:{{ '600' if step == 2 else '400' }};
+                   color:{{ 'var(--navy)' if step == 2 or s2_done else 'var(--text-muted)' }}">
+        Selfie
+      </span>
+    </div>
+
+    <div style="height:1px; width:48px; background:var(--border); flex-shrink:0; margin:0 8px"></div>
+
+    <div style="display:flex; align-items:center; gap:10px; flex:1">
+      <div style="width:32px; height:32px; border-radius:50%; display:flex; align-items:center;
+                  justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;
+                  background: {{ '#D1FAE5' if verification and verification.verification_status == 'verified' else 'var(--border)' }};
+                  color: {{ '#065F46' if verification and verification.verification_status == 'verified' else 'var(--text-muted)' }}">
+        {% if verification and verification.verification_status == 'verified' %}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        {% else %}3{% endif %}
+      </div>
+      <span style="font-size:13px; color:var(--text-muted)">Verified</span>
+    </div>
+  </div>
+
+  <!-- Step 1: Upload ID -->
+  {% if step == 1 or (not verification or not verification.id_document_path) %}
+  <div class="card" style="padding:32px">
+    <h2 style="font-size:18px; font-weight:700; color:var(--navy); margin-bottom:8px">
+      Step 1 — Upload Your Government ID
+    </h2>
+    <p style="font-size:14px; font-weight:300; color:var(--text-muted); margin-bottom:24px">
+      Accepted: Passport, Driver's License, or State ID. Make sure all text is clearly visible.
+    </p>
+
+    <form method="POST" action="{{ url_for('upload_id_document') }}" enctype="multipart/form-data">
+      <div class="form-group">
+        <label>ID Document Photo</label>
+        <div id="id-drop-zone" style="border:2px dashed var(--border); border-radius:var(--r-lg);
+             padding:40px 24px; text-align:center; cursor:pointer; transition:border-color .15s, background .15s"
+             onclick="document.getElementById('id-file-input').click()">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 12px; display:block">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <div style="font-size:14px; font-weight:600; color:var(--navy); margin-bottom:4px" id="id-drop-label">
+            Click to upload or drag and drop
+          </div>
+          <div style="font-size:12px; color:var(--text-muted)">JPG or PNG, max 10MB</div>
+        </div>
+        <input type="file" id="id-file-input" name="id_document" accept=".jpg,.jpeg,.png"
+               style="display:none" onchange="previewFile(this,'id-drop-label','id-drop-zone')">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Upload ID Document</button>
+    </form>
+  </div>
+
+  <!-- Step 2: Upload Selfie -->
+  {% elif step == 2 %}
+  <div class="card" style="padding:32px; margin-bottom:16px; background:#F0FDF4; border-color:#BBF7D0">
+    <div style="display:flex; align-items:center; gap:10px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      <span style="font-size:14px; font-weight:600; color:#15803D">ID document uploaded successfully</span>
+    </div>
+  </div>
+
+  <div class="card" style="padding:32px">
+    <h2 style="font-size:18px; font-weight:700; color:var(--navy); margin-bottom:8px">
+      Step 2 — Take a Selfie
+    </h2>
+    <p style="font-size:14px; font-weight:300; color:var(--text-muted); margin-bottom:24px">
+      Take a clear photo of your face in good lighting. Remove sunglasses or hats. We'll compare it against your ID.
+    </p>
+
+    <form method="POST" action="{{ url_for('upload_selfie') }}" enctype="multipart/form-data">
+      <div class="form-group">
+        <label>Selfie Photo</label>
+        <div id="selfie-drop-zone" style="border:2px dashed var(--border); border-radius:var(--r-lg);
+             padding:40px 24px; text-align:center; cursor:pointer; transition:border-color .15s, background .15s"
+             onclick="document.getElementById('selfie-file-input').click()">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)"
+               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 12px; display:block">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          <div style="font-size:14px; font-weight:600; color:var(--navy); margin-bottom:4px" id="selfie-drop-label">
+            Click to upload or drag and drop
+          </div>
+          <div style="font-size:12px; color:var(--text-muted)">JPG or PNG, max 10MB</div>
+        </div>
+        <input type="file" id="selfie-file-input" name="selfie" accept=".jpg,.jpeg,.png"
+               style="display:none" onchange="previewFile(this,'selfie-drop-label','selfie-drop-zone')">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%">Submit for Verification</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <!-- Skip link -->
+  {% if verification and verification.verification_status != 'verified' %}
+  <p style="text-align:center; margin-top:20px; font-size:13px; color:var(--text-muted)">
+    <a href="{{ url_for('worker_dashboard') }}" style="color:var(--text-muted)">Skip for now</a>
+    &mdash; unverified applications are ranked lower.
+  </p>
+  {% else %}
+  <p style="text-align:center; margin-top:20px; font-size:13px; color:var(--text-muted)">
+    <a href="{{ url_for('worker_dashboard') }}" style="color:var(--text-muted)">Back to Dashboard</a>
+  </p>
+  {% endif %}
+
+  <!-- Privacy notice -->
+  <div style="margin-top:32px; padding:16px 20px; background:var(--bg-subtle);
+              border-radius:var(--r-lg); border:1px solid var(--border)">
+    <div style="display:flex; align-items:flex-start; gap:10px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)"
+           stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      <div>
+        <div style="font-size:12px; font-weight:600; color:var(--navy); margin-bottom:3px">Privacy and Security</div>
+        <div style="font-size:12px; font-weight:300; color:var(--text-muted); line-height:1.6">
+          Your documents are stored securely and are never shared with employers.
+          Employers only see your verification status (Verified / Unverified) and a match score percentage.
+          Raw ID images are only accessible to you.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function previewFile(input, labelId, zoneId) {
+  const label = document.getElementById(labelId);
+  const zone  = document.getElementById(zoneId);
+  if (input.files && input.files[0]) {
+    label.textContent = input.files[0].name;
+    zone.style.borderColor = 'var(--accent)';
+    zone.style.background  = 'rgba(212,168,83,.04)';
+  }
+}
+// Drag-and-drop highlight
+document.querySelectorAll('[id$="-drop-zone"]').forEach(zone => {
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.borderColor = 'var(--accent)'; });
+  zone.addEventListener('dragleave', () => { zone.style.borderColor = 'var(--border)'; });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.style.borderColor = 'var(--border)';
+    const inputId = zone.id.replace('-drop-zone', '-file-input');
+    const inp = document.getElementById(inputId);
+    if (inp && e.dataTransfer.files[0]) {
+      const dt = new DataTransfer();
+      dt.items.add(e.dataTransfer.files[0]);
+      inp.files = dt.files;
+      inp.dispatchEvent(new Event('change'));
+    }
+  });
+});
+</script>
+{% endblock %}
