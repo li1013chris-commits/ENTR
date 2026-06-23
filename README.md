@@ -1,44 +1,110 @@
-# ENTR — Faster hiring for early-stage teams
-[![MVP](https://img.shields.io/badge/status-MVP-brightgreen)](https://entr.up.railway.app/)
+# ENTR
 
-![Hero screenshot](assets/hero.png)
+**Faster hiring for immigrant-owned and early-stage teams**
+
+[![Status](https://img.shields.io/badge/status-MVP-brightgreen)](https://entr.up.railway.app/)
 
 Live demo → https://entr.up.railway.app/
+Figma → https://figma.com/make/9pSpyOW23ikFiAm43nB4DJ/Design-ENTR-Landing-Page?p=f&t=XM4Xl0s0fyJTTbBp-0
 
-Figma prototype → https://figma.com/make/9pSpyOW23ikFiAm43nB4DJ/Design-ENTR-Landing-Page?p=f&t=XM4Xl0s0fyJTTbBp-0
+---
 
-TL;DR
-ENTR reduces screening time with a 60-second candidate qualification flow that matches applicants to role templates.
+## What is ENTR
 
-Try it in 30 seconds
-1. Open demo: https://entr.up.railway.app/
-2. Click the main CTA (Start) and complete the 60-second flow
+ENTR is a lightweight hiring system that replaces resume-based screening with a **60-second candidate qualification flow**.
 
-Features
-- Quick candidate qualification flow (≈60s)
-- Role templates for fast matching
-- Simple UI for candidates and hiring teams
+It is designed for **immigrant-owned small businesses and early-stage teams** that need to hire quickly without structured HR systems.
 
-How it works (3 steps)
-1. Candidate opens the demo and starts the 60-second flow.
-2. Answers are matched to role templates.
-3. Hiring team reviews qualified candidates.
+---
 
-Want to see more?
-- Live demo: https://entr.up.railway.app/
-- Figma prototype: https://figma.com/make/9pSpyOW23ikFiAm43nB4DJ/Design-ENTR-Landing-Page?p=f&t=XM4Xl0s0fyJTTbBp-0
+## Problem
 
-Hiring & contact
-We’re hiring — contact: li1013chris@gmail.com
+Hiring breaks down in small, fast-moving teams because:
 
-Tech stack
-- Frontend: (fill in: e.g., React / Next.js)
-- Backend: (fill in: e.g., Node / Express)
-- Deployment: Railway (https://entr.up.railway.app/)
+* Resume screening is slow and inconsistent
+* Many applicants are unqualified or misaligned
+* Hiring is often informal and unstructured
+* Immigrant-owned businesses face additional time and language constraints
+* Founders and owners spend too much time filtering candidates manually
 
-Notes about this repository
-- This README was added to the repository to highlight the ENTR MVP and link directly to the live demo and Figma prototype.
-- Place a hero screenshot at `assets/hero.png` to make the demo obvious on the repo front page.
+---
 
-License
-This project is MIT licensed — see LICENSE.
+## Solution
+
+ENTR turns hiring into a structured, fast evaluation process:
+
+* Candidates complete a **60-second qualification flow**
+* Responses map to predefined **role templates**
+* Hiring teams instantly see **filtered, relevant candidates**
+
+No resume sorting. No manual screening bottleneck.
+
+---
+
+## Try it
+
+1. Open the demo → https://entr.up.railway.app/
+2. Click **Start**
+3. Complete the 60-second flow
+
+---
+
+## How it works
+
+**Candidate → Qualification Flow → Role Matching → Shortlist**
+
+1. Candidate completes short structured questions
+2. Responses are mapped to role templates
+3. System filters candidates automatically
+4. Hiring team reviews only qualified matches
+
+---
+
+## Key Features
+
+* 60-second candidate qualification flow
+* Role template-based matching system
+* Structured evaluation instead of resumes
+* Built for fast-paced, resource-constrained teams
+* Designed for immigrant-owned small businesses and early-stage startups
+
+---
+
+## Validation
+
+Before building ENTR, I spoke with founders and entrepreneurship educators to understand hiring challenges in small teams.
+
+Conversations with **Daniel Cohen (Wake Forest University)** and **Chad Keister (NCSSM)** reinforced a consistent insight:
+
+> Hiring and candidate screening is a major time bottleneck for small teams, especially those without formal HR systems.
+
+These discussions helped validate the problem and shaped ENTR into a structured qualification system instead of a traditional application tracker.
+
+---
+
+## Tech Stack
+
+* Frontend: (React / Next.js / Svelte)
+* Backend: (Node.js / Express)
+* Deployment: Railway
+
+---
+
+## About
+
+ENTR is an MVP exploring faster, structured hiring workflows for small, resource-constrained teams.
+
+The goal is to reduce time spent on screening while improving signal quality in early hiring decisions.
+
+---
+
+## Contact
+
+Chris Li
+[li1013chris@gmail.com](mailto:li1013chris@gmail.com)
+
+---
+
+## License
+
+MIT
