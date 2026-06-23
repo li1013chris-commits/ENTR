@@ -318,17 +318,34 @@ def employer_dashboard():
 def post_job():
     user = get_current_user()
     if request.method == "POST":
-        title       = request.form.get("title", "").strip()
-        pay         = request.form.get("pay", "").strip()
-        hours       = request.form.get("hours", "").strip()
-        exp         = int(request.form.get("experience_required", 0))
-        lang_pref   = request.form.get("language_preference", "").strip()
-        location    = request.form.get("location", "").strip()
-        description = request.form.get("description", "").strip()
+        title         = request.form.get("title", "").strip()
+        pay_amount    = request.form.get("pay_amount", "").strip()
+        pay_type      = request.form.get("pay_type", "per_hour").strip()
+        tips_included = request.form.get("tips_included", "no").strip()
+        hours         = request.form.get("hours", "").strip()
+        exp           = int(request.form.get("experience_required", 0) or 0)
+        location      = request.form.get("location", "").strip()
+        skills_req    = request.form.get("skills_required", "").strip()
+        add_info      = request.form.get("additional_info", "").strip()
 
-        if not all([title, pay, hours]):
+        if not all([title, pay_amount, hours]):
             flash("Position, pay, and hours are required.", "error")
             return render_template("employer/post_job.html", user=user)
+
+        pay_suffixes = {
+            "per_hour": "/hr", "per_day": "/day", "per_week": "/week",
+            "per_month": "/month", "salary_year": "/yr",
+        }
+        pay = f"${pay_amount}{pay_suffixes.get(pay_type, '/hr')}"
+        if tips_included == "yes":
+            pay += " + tips"
+
+        parts = []
+        if skills_req:
+            parts.append(f"Skills required: {skills_req}")
+        if add_info:
+            parts.append(f"Additional info: {add_info}")
+        description = "\n\n".join(parts)
 
         import datetime as _datetime
         expires_at = _datetime.datetime.utcnow() + _datetime.timedelta(days=30)
@@ -339,7 +356,7 @@ def post_job():
                (employer_id, title, pay, hours, experience_required,
                 language_preference, location, description, expires_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user["id"], title, pay, hours, exp, lang_pref, location, description, expires_at),
+            (user["id"], title, pay, hours, exp, "", location, description, expires_at),
         )
         db.commit()
         flash("Job posted successfully!", "success")

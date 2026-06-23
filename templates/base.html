@@ -22,6 +22,7 @@
          class="nav-link" data-i18n="nav.dashboard"></a>
     {% endif %}
 
+    {% if request.path in ['/', '/signup', '/worker/jobs', '/worker/profile'] %}
     {% set cur_lang = session.get('lang', 'en') %}
     <select id="lang-select" class="lang-select" aria-label="Language">
       <option value="en"  {% if cur_lang == 'en'  %}selected{% endif %}>EN - English</option>
@@ -31,6 +32,7 @@
       <option value="pt"  {% if cur_lang == 'pt'  %}selected{% endif %}>PT - Português</option>
       <option value="vi"  {% if cur_lang == 'vi'  %}selected{% endif %}>VI - Tiếng Việt</option>
     </select>
+    {% endif %}
 
     <div class="nav-divider"></div>
 

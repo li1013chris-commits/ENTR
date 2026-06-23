@@ -4,53 +4,78 @@
 
 {% block content %}
 <div class="page">
-  <div class="form-card" style="max-width: 600px">
-    <h1 class="form-title" data-i18n="postjob.title"></h1>
-    <p class="form-subtitle" data-i18n="postjob.subtitle"></p>
+  <div class="form-card" style="max-width:620px">
+    <h1 class="form-title">Post a Job</h1>
+    <p class="form-subtitle">Fill in the details below to find your next team member.</p>
 
     <form method="POST" action="{{ url_for('post_job') }}">
 
       <div class="form-group">
-        <label><span data-i18n="postjob.position"></span><span class="req">*</span></label>
+        <label>Position / Title <span class="req">*</span></label>
         <input type="text" name="title" required placeholder="e.g. Line Cook, Server, Dishwasher" />
       </div>
 
       <div class="form-group">
-        <label><span data-i18n="postjob.pay"></span><span class="req">*</span></label>
-        <input type="text" name="pay" required />
-        <div class="form-hint" data-i18n="postjob.pay.hint"></div>
+        <label>Pay <span class="req">*</span></label>
+        <div style="display:flex; gap:8px; align-items:center">
+          <span style="font-size:15px; color:var(--text-muted); white-space:nowrap">$</span>
+          <input type="number" name="pay_amount" required min="0" step="0.01" placeholder="0.00"
+                 style="flex:1; min-width:0; width:auto" />
+          <select name="pay_type" style="flex:1.4; min-width:0; width:auto">
+            <option value="per_hour">per hour</option>
+            <option value="per_day">per day</option>
+            <option value="per_week">per week</option>
+            <option value="per_month">per month</option>
+            <option value="salary_year">salary / year</option>
+          </select>
+        </div>
       </div>
 
       <div class="form-group">
-        <label><span data-i18n="postjob.hours"></span><span class="req">*</span></label>
-        <input type="text" name="hours" required />
-        <div class="form-hint" data-i18n="postjob.hours.hint"></div>
+        <label>Tips included?</label>
+        <select name="tips_included">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
       </div>
 
       <div class="form-group">
-        <label data-i18n="postjob.experience"></label>
+        <label>Hours <span class="req">*</span></label>
+        <select name="hours" required>
+          <option value="">Select...</option>
+          <option value="Full-time (35-40 hrs/week)">Full-time (35-40 hrs/week)</option>
+          <option value="Part-time (15-25 hrs/week)">Part-time (15-25 hrs/week)</option>
+          <option value="Weekends only">Weekends only</option>
+          <option value="Flexible / varies">Flexible / varies</option>
+          <option value="On-call">On-call</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Experience Required (years)</label>
         <input type="number" name="experience_required" value="0" min="0" max="30" />
       </div>
 
       <div class="form-group">
-        <label data-i18n="postjob.language"></label>
-        <input type="text" name="language_preference" />
-        <div class="form-hint" data-i18n="postjob.language.hint"></div>
-      </div>
-
-      <div class="form-group">
-        <label data-i18n="postjob.location"></label>
+        <label>Location</label>
         <input type="text" name="location" placeholder="e.g. Brooklyn, NY" />
       </div>
 
       <div class="form-group">
-        <label data-i18n="postjob.description"></label>
-        <textarea name="description" rows="4"></textarea>
+        <label>What skills or experience does this job require?</label>
+        <textarea name="skills_required" rows="3"
+          placeholder="Example: must know how to use a grill, food safety certificate preferred, experience with busy lunch rush."></textarea>
       </div>
 
-      <div style="display:flex; gap:12px; flex-wrap:wrap">
-        <button type="submit" class="btn btn-primary" data-i18n="postjob.submit"></button>
-        <a href="{{ url_for('employer_dashboard') }}" class="btn btn-secondary" data-i18n="applications.back"></a>
+      <div class="form-group">
+        <label>Anything else applicants should know?</label>
+        <textarea name="additional_info" rows="3"
+          placeholder="Example: uniform provided, tips split with kitchen staff, must speak some English."></textarea>
+      </div>
+
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:8px">
+        <button type="submit" class="btn btn-primary">Post Job</button>
+        <a href="{{ url_for('employer_dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
       </div>
     </form>
   </div>
