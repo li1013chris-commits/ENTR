@@ -115,6 +115,13 @@ def api_login_required(role=None):
     return decorator
 
 
+# ── Health check ──────────────────────────────────────────────────────────────
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
 # ── Public routes ─────────────────────────────────────────────────────────────
 
 @app.route("/")
