@@ -21,6 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
@@ -29,11 +30,19 @@ app.config['SESSION_COOKIE_SECURE'] = True
 
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://entr.up.railway.app"], supports_credentials=True)
 init_mail(app)
-init_db()
+
+try:
+    init_db()
+    log.info("Database initialized successfully")
+except Exception:
+    log.exception("STARTUP ERROR: failed to initialize database")
 
 # Verification uploads stored OUTSIDE static/ so they are never web-accessible
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "verification")
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+try:
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+except OSError:
+    log.exception("STARTUP ERROR: failed to create upload folder %s", UPLOAD_FOLDER)
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
 
 

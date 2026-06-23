@@ -3,7 +3,7 @@
 import os
 import logging
 from datetime import datetime
-from flask_mail import Mail, Message
+from flask_mailman import Mail, EmailMessage
 
 log = logging.getLogger(__name__)
 mail = Mail()
@@ -131,8 +131,8 @@ def _send_mail(to_email: str, subject: str, body: str) -> bool:
         return False
 
     try:
-        msg = Message(subject=subject, recipients=[to_email], body=body)
-        mail.send(msg)
+        msg = EmailMessage(subject=subject, body=body, to=[to_email])
+        msg.send()
         log.info(f"Email sent to {to_email}: {subject}")
         return True
     except Exception as e:
