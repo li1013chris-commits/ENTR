@@ -1,0 +1,22 @@
+# Database — never commit local SQLite to production
+*.db
+*.sqlite3
+
+# Uploaded files
+uploads/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store

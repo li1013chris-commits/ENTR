@@ -29,6 +29,7 @@ app.config['SESSION_COOKIE_SECURE'] = True
 
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://entr.up.railway.app"], supports_credentials=True)
 init_mail(app)
+init_db()
 
 # Verification uploads stored OUTSIDE static/ so they are never web-accessible
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads", "verification")
@@ -1937,5 +1938,4 @@ def api_renew_job(job_id):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
