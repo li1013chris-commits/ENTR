@@ -303,6 +303,37 @@ def send_application_status_email(
     return _send_mail(to_email, subject, body)
 
 
+def send_interview_message_email(
+    to_email: str,
+    worker_name: str,
+    restaurant_name: str,
+    date_time: str,
+    zoom_link: str = "",
+    notes: str = "",
+    needs_confirmation: bool = False,
+) -> bool:
+    """
+    Worker-facing interview email. Subject: "Message from [Restaurant Name]".
+    Includes date/time, the Zoom link if provided, and the employer's notes.
+    """
+    subject = f"Message from {restaurant_name}"
+    lines = [
+        f"Hi {worker_name},",
+        "",
+        f"{restaurant_name} wants to interview you.",
+        "",
+        f"Date and time: {date_time}",
+    ]
+    if zoom_link:
+        lines += ["", f"Zoom link: {zoom_link}"]
+    if notes:
+        lines += ["", f"Note from {restaurant_name}:", notes]
+    if needs_confirmation:
+        lines += ["", "Please open your ENTR dashboard to confirm this time."]
+    lines += ["", "ENTR"]
+    return _send_mail(to_email, subject, "\n".join(lines))
+
+
 def send_interview_proposal_email(
     to_email: str,
     worker_name: str,

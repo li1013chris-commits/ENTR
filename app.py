@@ -1832,8 +1832,8 @@ def api_employer_refer_worker(app_id):
     ).fetchone()
     if not app_row or app_row["employer_id"] != user["id"]:
         return jsonify({"error": "Application not found."}), 404
-    if app_row["status"] != "hired":
-        return jsonify({"error": "Referrals can only be created for hired workers."}), 400
+    if app_row["status"] not in ("hired", "accepted"):
+        return jsonify({"error": "Referrals can only be created for accepted workers."}), 400
 
     data          = request.get_json(force=True)
     referral_note = (data.get("note") or "").strip()[:200]
@@ -2002,6 +2002,8 @@ def api_employer_schedule_interview(app_id):
 
     data = request.get_json(force=True)
     scheduled_at_str = data.get("scheduled_at")
+    notes     = clean_text(data.get("notes"), 1000)
+    zoom_link = clean_text(data.get("zoom_link"), 300)
 
     if not scheduled_at_str:
         return jsonify({"error": "scheduled_at is required"}), 400
@@ -2023,16 +2025,23 @@ def api_employer_schedule_interview(app_id):
         worker_language="en",
         employer_token_row=_get_oauth_token(user["id"]),
         worker_token_row=_get_oauth_token(app_row["worker_id"]),
+        contact_info=" | ".join(
+            p for p in [
+                f"Zoom: {zoom_link}" if zoom_link else "",
+                f"Note: {notes}" if notes else "",
+            ] if p
+        ),
     )
 
     # Manual fallback / belt-and-braces: always email both parties a confirmation.
     email_sent = 0
     try:
-        from email_service import send_interview_scheduled_email
+        from email_service import send_interview_message_email, send_interview_scheduled_email
         when = scheduled_at.strftime("%A, %B %d at %I:%M %p")
         restaurant = user["restaurant_name"] or user["name"]
-        sent_w = send_interview_scheduled_email(
-            app_row["worker_email"], app_row["worker_name"], when, restaurant, app_row["title"],
+        sent_w = send_interview_message_email(
+            app_row["worker_email"], app_row["worker_name"], restaurant, when,
+            zoom_link=zoom_link, notes=notes,
         )
         sent_e = send_interview_scheduled_email(
             user["email"], user["name"], when, restaurant, app_row["title"],
@@ -2044,10 +2053,11 @@ def api_employer_schedule_interview(app_id):
     db.execute(
         """INSERT INTO interviews (application_id, employer_id, worker_id, scheduled_at,
                                    google_event_id, calendar_invite_sent, confirmation_email_sent,
-                                   worker_confirmed, employer_confirmed)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)""",
+                                   worker_confirmed, employer_confirmed, notes, zoom_link)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)""",
         (app_id, user["id"], app_row["worker_id"], scheduled_at,
-         google_event_id or None, 1 if google_event_id else 0, email_sent),
+         google_event_id or None, 1 if google_event_id else 0, email_sent,
+         notes or None, zoom_link or None),
     )
     db.execute(
         "UPDATE applications SET status = 'interview_scheduled' WHERE id = ?", (app_id,)
@@ -2766,6 +2776,8 @@ def api_propose_interview(app_id):
 
     data = request.get_json(force=True)
     scheduled_at_str = data.get("scheduled_at")
+    notes     = clean_text(data.get("notes"), 1000)
+    zoom_link = clean_text(data.get("zoom_link"), 300)
     if not scheduled_at_str:
         return jsonify({"error": "scheduled_at is required"}), 400
     try:
@@ -2777,27 +2789,29 @@ def api_propose_interview(app_id):
         db.execute(
             """UPDATE interviews SET scheduled_at=?, status='scheduled',
                    worker_confirmed=0, employer_confirmed=1,
-                   google_event_id=NULL, calendar_invite_sent=0
+                   google_event_id=NULL, calendar_invite_sent=0,
+                   notes=?, zoom_link=?
                WHERE application_id=?""",
-            (scheduled_at, app_id),
+            (scheduled_at, notes or None, zoom_link or None, app_id),
         )
     else:
         db.execute(
             """INSERT INTO interviews (application_id, employer_id, worker_id, scheduled_at,
-                                       worker_confirmed, employer_confirmed)
-               VALUES (?, ?, ?, ?, 0, 1)""",
-            (app_id, user["id"], app_row["worker_id"], scheduled_at),
+                                       worker_confirmed, employer_confirmed, notes, zoom_link)
+               VALUES (?, ?, ?, ?, 0, 1, ?, ?)""",
+            (app_id, user["id"], app_row["worker_id"], scheduled_at,
+             notes or None, zoom_link or None),
         )
     db.commit()
 
     # Notify the worker to confirm
     try:
-        from email_service import send_interview_proposal_email
+        from email_service import send_interview_message_email
         when = scheduled_at.strftime("%A, %B %d at %I:%M %p")
-        send_interview_proposal_email(
-            app_row["worker_email"], app_row["worker_name"], when,
-            user["restaurant_name"] or user["name"], app_row["title"],
-            app_row["worker_lang"] or "en",
+        send_interview_message_email(
+            app_row["worker_email"], app_row["worker_name"],
+            user["restaurant_name"] or user["name"], when,
+            zoom_link=zoom_link, notes=notes, needs_confirmation=True,
         )
     except Exception as e:
         log.warning("interview proposal email failed: %s", e)
@@ -2850,7 +2864,13 @@ def api_worker_confirm_interview(interview_id):
         worker_language=user["language_pref"] or "en",
         employer_token_row=_get_oauth_token(interview["employer_id"]),
         worker_token_row=_get_oauth_token(user["id"]),
-        contact_info=_job_contact_info(interview),
+        contact_info=" | ".join(
+            p for p in [
+                _job_contact_info(interview),
+                f"Zoom: {interview['zoom_link']}" if interview["zoom_link"] else "",
+                f"Note: {interview['notes']}" if interview["notes"] else "",
+            ] if p
+        ),
     )
 
     db.execute(
@@ -2871,9 +2891,10 @@ def api_worker_confirm_interview(interview_id):
         from email_service import send_interview_scheduled_email
         when = scheduled_at.strftime("%A, %B %d at %I:%M %p")
         restaurant = interview["restaurant_name"] or interview["employer_name"]
-        sent_w = send_interview_scheduled_email(
-            user["email"], user["name"], when, restaurant, interview["title"],
-            user["language_pref"] or "en",
+        from email_service import send_interview_message_email
+        sent_w = send_interview_message_email(
+            user["email"], user["name"], restaurant, when,
+            zoom_link=interview["zoom_link"] or "", notes=interview["notes"] or "",
         )
         sent_e = send_interview_scheduled_email(
             interview["employer_email"], interview["employer_name"], when,

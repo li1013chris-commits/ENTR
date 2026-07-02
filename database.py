@@ -196,6 +196,8 @@ def _migrate(conn):
         ("proposed_slots",     "TEXT"),
         ("worker_confirmed",   "INTEGER DEFAULT 0"),
         ("employer_confirmed", "INTEGER DEFAULT 0"),
+        ("notes",              "TEXT"),
+        ("zoom_link",          "TEXT"),
     ]:
         add("interviews", col, typedef)
 
