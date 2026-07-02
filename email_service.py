@@ -166,22 +166,80 @@ def send_welcome_email(to_email: str, name: str, lang: str = "en") -> bool:
     return _send_mail(to_email, subject, body)
 
 
+# Hardcoded verification-email translations — no API calls.
+# {name} is the user's name, {link} is the verification URL.
+VERIFY_EMAIL_TEMPLATES = {
+    "en": {
+        "subject": "Verify your ENTR account",
+        "body": (
+            "Hi {name},\n\n"
+            "Welcome to ENTR! Please verify your email by clicking the link below.\n\n"
+            "Verify my account:\n{link}\n\n"
+            "If you didn't sign up, ignore this email.\n\n"
+            "ENTR"
+        ),
+    },
+    "zh": {
+        "subject": "验证您的 ENTR 账户",
+        "body": (
+            "您好 {name}，\n\n"
+            "欢迎来到 ENTR！请点击下面的链接验证您的邮箱。\n\n"
+            "验证我的账户：\n{link}\n\n"
+            "如果您没有注册，请忽略此邮件。\n\n"
+            "ENTR"
+        ),
+    },
+    "es": {
+        "subject": "Verifica tu cuenta de ENTR",
+        "body": (
+            "Hola {name}:\n\n"
+            "¡Bienvenido a ENTR! Verifica tu correo haciendo clic en el enlace de abajo.\n\n"
+            "Verificar mi cuenta:\n{link}\n\n"
+            "Si no te registraste, ignora este correo.\n\n"
+            "ENTR"
+        ),
+    },
+    "fr": {
+        "subject": "Vérifiez votre compte ENTR",
+        "body": (
+            "Bonjour {name},\n\n"
+            "Bienvenue sur ENTR ! Veuillez vérifier votre e-mail en cliquant sur le lien ci-dessous.\n\n"
+            "Vérifier mon compte :\n{link}\n\n"
+            "Si vous ne vous êtes pas inscrit, ignorez cet e-mail.\n\n"
+            "ENTR"
+        ),
+    },
+    "pt": {
+        "subject": "Verifique sua conta ENTR",
+        "body": (
+            "Olá, {name}!\n\n"
+            "Bem-vindo ao ENTR! Verifique seu e-mail clicando no link abaixo.\n\n"
+            "Verificar minha conta:\n{link}\n\n"
+            "Se você não se cadastrou, ignore este e-mail.\n\n"
+            "ENTR"
+        ),
+    },
+    "vi": {
+        "subject": "Xác minh tài khoản ENTR của bạn",
+        "body": (
+            "Chào {name},\n\n"
+            "Chào mừng bạn đến với ENTR! Vui lòng xác minh email bằng cách nhấp vào liên kết bên dưới.\n\n"
+            "Xác minh tài khoản của tôi:\n{link}\n\n"
+            "Nếu bạn không đăng ký, hãy bỏ qua email này.\n\n"
+            "ENTR"
+        ),
+    },
+}
+
+
 def send_verification_email(to_email: str, name: str, token: str, lang: str = "en") -> bool:
-    """Send account verification email. The link hits the backend directly."""
+    """Send the account verification email in the user's language."""
     backend_url = os.environ.get("BACKEND_URL", "https://entr-production.up.railway.app").rstrip("/")
     verify_url = f"{backend_url}/api/verify-email?token={token}"
 
-    subject = "Verify your ENTR account"
-    body = (
-        f"Hi {name},\n\n"
-        f"Welcome to ENTR!\n\n"
-        f"Click this link to verify your email and activate your account:\n\n"
-        f"{verify_url}\n\n"
-        f"That's it. After you click, you can log in.\n\n"
-        f"If you did not sign up for ENTR, you can ignore this email.\n\n"
-        f"The ENTR Team"
-        + _get_email_footer(lang).format(email=to_email)
-    )
+    template = VERIFY_EMAIL_TEMPLATES.get(lang, VERIFY_EMAIL_TEMPLATES["en"])
+    subject = template["subject"]
+    body = template["body"].format(name=name, link=verify_url)
     return _send_mail(to_email, subject, body)
 
 
