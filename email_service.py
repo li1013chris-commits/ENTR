@@ -110,6 +110,43 @@ def _smtp_configured() -> bool:
     )
 
 
+def _smtplib_configured() -> bool:
+    return bool(
+        os.environ.get("SMTP_HOST")
+        and os.environ.get("SMTP_USER")
+        and os.environ.get("SMTP_PASS")
+    )
+
+
+def _send_via_smtplib(to_email: str, subject: str, body: str) -> bool:
+    """Plain smtplib fallback using SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS."""
+    import smtplib
+    from email.mime.text import MIMEText
+
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ.get("SMTP_PORT", 587))
+    user = os.environ["SMTP_USER"]
+    password = os.environ["SMTP_PASS"]
+    sender = os.environ.get("MAIL_DEFAULT_SENDER", user)
+
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = to_email
+
+    try:
+        with smtplib.SMTP(host, port, timeout=20) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(user, password)
+            server.sendmail(sender, [to_email], msg.as_string())
+        log.info(f"Email sent via smtplib to {to_email}: {subject}")
+        return True
+    except Exception as e:
+        log.error(f"smtplib send failed to {to_email}: {e}")
+        return False
+
+
 def _get_email_footer(lang: str = "en") -> str:
     """Get email footer with privacy/terms links."""
     trans = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
@@ -125,19 +162,22 @@ def _get_email_footer(lang: str = "en") -> str:
 
 
 def _send_mail(to_email: str, subject: str, body: str) -> bool:
-    """Send email via SMTP or log to console."""
-    if not _smtp_configured():
-        log.info(f"SMTP not configured. EMAIL:\nTo: {to_email}\nSubject: {subject}\n\n{body}")
-        return False
+    """Send email via flask-mailman, falling back to smtplib, then console log."""
+    if _smtp_configured():
+        try:
+            msg = EmailMessage(subject=subject, body=body, to=[to_email])
+            msg.send()
+            log.info(f"Email sent to {to_email}: {subject}")
+            return True
+        except Exception as e:
+            log.error(f"Failed to send email to {to_email}: {e}")
+            return False
 
-    try:
-        msg = EmailMessage(subject=subject, body=body, to=[to_email])
-        msg.send()
-        log.info(f"Email sent to {to_email}: {subject}")
-        return True
-    except Exception as e:
-        log.error(f"Failed to send email to {to_email}: {e}")
-        return False
+    if _smtplib_configured():
+        return _send_via_smtplib(to_email, subject, body)
+
+    log.info(f"SMTP not configured. EMAIL:\nTo: {to_email}\nSubject: {subject}\n\n{body}")
+    return False
 
 
 def send_welcome_email(to_email: str, name: str, lang: str = "en") -> bool:
@@ -155,17 +195,18 @@ def send_welcome_email(to_email: str, name: str, lang: str = "en") -> bool:
 
 
 def send_verification_email(to_email: str, name: str, token: str, lang: str = "en") -> bool:
-    """Send account verification email."""
-    frontend_url = os.environ.get("FRONTEND_URL", "https://entr.up.railway.app")
-    verify_url = f"{frontend_url}/verify-email?token={token}"
+    """Send account verification email. The link hits the backend directly."""
+    backend_url = os.environ.get("BACKEND_URL", "https://entr-production.up.railway.app").rstrip("/")
+    verify_url = f"{backend_url}/api/verify-email?token={token}"
 
-    trans = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
-    subject = trans.get("email.subject.verify", "Verify your ENTR account")
+    subject = "Verify your ENTR account"
     body = (
         f"Hi {name},\n\n"
-        f"Verify your email by clicking this link:\n\n"
+        f"Welcome to ENTR!\n\n"
+        f"Click this link to verify your email and activate your account:\n\n"
         f"{verify_url}\n\n"
-        f"Link expires in 24 hours.\n\n"
+        f"That's it. After you click, you can log in.\n\n"
+        f"If you did not sign up for ENTR, you can ignore this email.\n\n"
         f"The ENTR Team"
         + _get_email_footer(lang).format(email=to_email)
     )

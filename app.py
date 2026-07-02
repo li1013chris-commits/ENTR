@@ -301,23 +301,21 @@ def signup():
             flash("An account with that email already exists.", "error")
             return render_template("signup.html")
 
+        import secrets as _secrets
+        token   = _secrets.token_urlsafe(32)
         pw_hash = generate_password_hash(password)
         db.execute(
             """INSERT INTO users
-               (email, password_hash, role, name, phone, language_pref, restaurant_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (email, pw_hash, role, name, phone, language_pref, restaurant_name),
+               (email, password_hash, role, name, phone, language_pref, restaurant_name,
+                email_verified, email_verification_token)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+            (email, pw_hash, role, name, phone, language_pref, restaurant_name, token),
         )
         db.commit()
 
-        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-        session["user_id"] = user["id"]
-        session["lang"]    = language_pref
-
-        if role == "employer":
-            return redirect(url_for("employer_dashboard"))
-        # Workers go to verify before browsing
-        return redirect(url_for("worker_verify"))
+        send_verification_email(email, name, token, language_pref)
+        flash("Check your email. We sent a verification link — click it to activate your account.", "info")
+        return redirect(url_for("login"))
 
     return render_template("signup.html")
 
@@ -333,6 +331,10 @@ def login():
 
         if not user or not check_password_hash(user["password_hash"], password):
             flash("Invalid email or password.", "error")
+            return render_template("login.html")
+
+        if not user["email_verified"]:
+            flash("Please verify your email before logging in. Check your inbox.", "error")
             return render_template("login.html")
 
         session["user_id"] = user["id"]
@@ -992,8 +994,7 @@ def api_auth_signup():
     db.commit()
 
     user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-    session["user_id"] = user["id"]
-    session["lang"]    = language_pref
+    # No session here: the account activates only after the email link is clicked.
 
     # Send verification email (non-blocking; logs to console if SMTP not configured)
     sent = send_verification_email(email, name, token)
@@ -1016,6 +1017,12 @@ def api_auth_login():
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({'error': 'Invalid email or password'}), 401
 
+    if not user["email_verified"]:
+        return jsonify({
+            'error': 'Please verify your email before logging in. Check your inbox.',
+            'email_unverified': True,
+        }), 403
+
     session["user_id"] = user["id"]
     session["lang"]    = user["language_pref"]
 
@@ -1023,6 +1030,67 @@ def api_auth_login():
     u.pop('password_hash', None)
     u.pop('email_verification_token', None)
     return jsonify({'user': u})
+
+
+@app.route("/api/verify-email", methods=["GET"])
+def api_verify_email_link():
+    """
+    Email-link verification target. Marks the account verified and bounces
+    the user to the frontend login page with a status flag.
+    """
+    frontend = os.environ.get("FRONTEND_URL", "https://entr.up.railway.app").rstrip("/")
+    token = (request.args.get("token") or "").strip()
+    if not token:
+        return redirect(f"{frontend}/login?verify_error=1")
+
+    db   = get_db()
+    user = db.execute(
+        "SELECT * FROM users WHERE email_verification_token = ?", (token,)
+    ).fetchone()
+    if not user:
+        return redirect(f"{frontend}/login?verify_error=1")
+
+    db.execute(
+        "UPDATE users SET email_verified = 1, email_verification_token = NULL WHERE id = ?",
+        (user["id"],),
+    )
+    db.commit()
+    return redirect(f"{frontend}/login?verified=1")
+
+
+_resend_hits: dict = defaultdict(deque)
+
+
+@app.route("/api/resend-verification", methods=["POST"])
+def api_resend_verification_public():
+    """
+    Unauthenticated resend (users can't log in before verifying).
+    Always returns ok so account existence isn't leaked.
+    """
+    import secrets as _secrets
+
+    data  = request.get_json(force=True)
+    email = clean_text(data.get("email"), 254).lower()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    # Max 3 resends per email/IP per 5 minutes
+    if not _hit(_resend_hits, f"{email}|{_client_ip()}", 3, window=300.0):
+        return jsonify({"error": "Please wait a few minutes before requesting another email."}), 429
+
+    db   = get_db()
+    user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+
+    sent = False
+    if user and not user["email_verified"]:
+        token = _secrets.token_urlsafe(32)
+        db.execute(
+            "UPDATE users SET email_verification_token = ? WHERE id = ?", (token, user["id"])
+        )
+        db.commit()
+        sent = send_verification_email(email, user["name"], token, user["language_pref"] or "en")
+
+    return jsonify({"ok": True, "sent": sent})
 
 
 @app.route("/api/auth/verify-email", methods=["POST"])
