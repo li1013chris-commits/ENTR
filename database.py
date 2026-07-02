@@ -173,6 +173,10 @@ def _migrate(conn):
     ]:
         add("users", col, typedef)
 
+    # users: session epoch — bumped on logout to invalidate all outstanding
+    # session cookies server-side
+    add("users", "session_epoch", "INTEGER DEFAULT 0")
+
     # Google Calendar OAuth tokens (Step 6)
     if "oauth_tokens" not in tables():
         cursor.execute("""

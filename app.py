@@ -34,8 +34,44 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+def _load_secret_key() -> str:
+    """
+    SECRET_KEY from env, or a generated key persisted to a file so all
+    gunicorn workers share it. Never fall back to a guessable constant —
+    that would make session cookies forgeable.
+    """
+    key = os.environ.get("SECRET_KEY")
+    if key and key != "change_this_to_a_random_secret_key":
+        return key
+    import secrets as _secrets
+    import tempfile
+    key_path = os.path.join(tempfile.gettempdir(), "entr_secret.key")
+    try:
+        with open(key_path, "r") as f:
+            stored = f.read().strip()
+        if len(stored) >= 32:
+            return stored
+    except OSError:
+        pass
+    generated = _secrets.token_hex(32)
+    try:
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(generated)
+    except FileExistsError:
+        with open(key_path, "r") as f:
+            return f.read().strip() or generated
+    except OSError:
+        pass
+    logging.getLogger(__name__).warning(
+        "SECRET_KEY env var not set — using a generated key. Set SECRET_KEY in "
+        "Railway so sessions survive restarts and redeploys."
+    )
+    return generated
+
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
+app.secret_key = _load_secret_key()
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -207,7 +243,38 @@ def get_current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if user is None:
+        return None
+    # Server-side invalidation: cookies from before the last logout carry a
+    # stale epoch and are rejected even though their signature is valid.
+    try:
+        current_epoch = user["session_epoch"] or 0
+    except (IndexError, KeyError):
+        current_epoch = 0
+    if session.get("epoch", 0) != current_epoch:
+        return None
+    return user
+
+
+def _establish_session(user_row):
+    """Create a session for a user, pinned to their current session epoch."""
+    try:
+        epoch = user_row["session_epoch"] or 0
+    except (IndexError, KeyError):
+        epoch = 0
+    session["user_id"] = user_row["id"]
+    session["epoch"]   = epoch
+
+
+def _invalidate_all_sessions(user_id: int):
+    """Bump the user's epoch so every outstanding session cookie is rejected."""
+    db = get_db()
+    db.execute(
+        "UPDATE users SET session_epoch = COALESCE(session_epoch, 0) + 1 WHERE id = ?",
+        (user_id,),
+    )
+    db.commit()
 
 
 def get_verification(worker_id: int):
@@ -337,8 +404,8 @@ def login():
             flash("Please verify your email before logging in. Check your inbox.", "error")
             return render_template("login.html")
 
-        session["user_id"] = user["id"]
-        session["lang"]    = user["language_pref"]
+        _establish_session(user)
+        session["lang"] = user["language_pref"]
 
         if user["role"] == "employer":
             return redirect(url_for("employer_dashboard"))
@@ -414,6 +481,8 @@ def reset_password():
 
 @app.route("/logout")
 def logout():
+    if session.get("user_id"):
+        _invalidate_all_sessions(session["user_id"])
     session.clear()
     return redirect(url_for("index"))
 
@@ -1023,8 +1092,8 @@ def api_auth_login():
             'email_unverified': True,
         }), 403
 
-    session["user_id"] = user["id"]
-    session["lang"]    = user["language_pref"]
+    _establish_session(user)
+    session["lang"] = user["language_pref"]
 
     u = row_to_dict(user)
     u.pop('password_hash', None)
@@ -1134,6 +1203,8 @@ def api_resend_verification():
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_auth_logout():
+    if session.get("user_id"):
+        _invalidate_all_sessions(session["user_id"])
     session.clear()
     return jsonify({'ok': True})
 
@@ -2099,6 +2170,7 @@ def api_reset_password():
         (pw_hash, user["id"]),
     )
     db.commit()
+    _invalidate_all_sessions(user["id"])
 
     return jsonify({"ok": True})
 
