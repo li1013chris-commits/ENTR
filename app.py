@@ -108,8 +108,12 @@ _rate_lock = threading.Lock()
 _ip_hits: dict = defaultdict(deque)       # ip -> deque of timestamps
 _ai_hits: dict = defaultdict(deque)       # user/ip key -> deque of timestamps
 
-RATE_LIMIT_PER_MIN = 100      # all endpoints, per IP
-AI_RATE_LIMIT_PER_MIN = 10    # AI-powered endpoints, per user
+# Counters live in each gunicorn worker's memory, so divide the global budget
+# by worker count to keep effective limits at ~100 req/IP/min and ~10 AI
+# calls/user/min across the whole service.
+_WORKERS = max(1, int(os.environ.get("GUNICORN_WORKERS", "2")))
+RATE_LIMIT_PER_MIN = max(1, 100 // _WORKERS)      # all endpoints, per IP
+AI_RATE_LIMIT_PER_MIN = max(1, 10 // _WORKERS)    # AI-powered endpoints, per user
 
 
 def _client_ip() -> str:
