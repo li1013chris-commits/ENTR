@@ -1213,7 +1213,7 @@ def api_resend_verification():
         "UPDATE users SET email_verification_token = ? WHERE id = ?", (token, user["id"])
     )
     get_db().commit()
-    sent = send_verification_email(user["email"], user["name"], token)
+    sent = send_verification_email(user["email"], user["name"], token, user["language_pref"] or "en")
     return jsonify({"ok": True, "sent": sent})
 
 
