@@ -26,6 +26,21 @@ from database import get_db, close_db, init_db
 from ai_screening import screen_application
 from email_service import init_mail, send_verification_email
 
+
+def send_verification_email_async(email: str, name: str, token: str, lang: str = "en") -> None:
+    """
+    Fire the verification email from a background thread so signup responds
+    immediately. flask-mailman needs an app context inside the thread.
+    """
+    def _task():
+        with app.app_context():
+            try:
+                send_verification_email(email, name, token, lang)
+            except Exception:
+                log.exception("async verification email failed for %s", email)
+
+    threading.Thread(target=_task, daemon=True).start()
+
 load_dotenv()
 
 logging.basicConfig(
@@ -380,7 +395,7 @@ def signup():
         )
         db.commit()
 
-        send_verification_email(email, name, token, language_pref)
+        send_verification_email_async(email, name, token, language_pref)
         flash("Check your email. We sent a verification link — click it to activate your account.", "info")
         return redirect(url_for("login"))
 
@@ -1065,8 +1080,9 @@ def api_auth_signup():
     user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
     # No session here: the account activates only after the email link is clicked.
 
-    # Send verification email (non-blocking; logs to console if SMTP not configured)
-    sent = send_verification_email(email, name, token)
+    # Queue the verification email in a background thread — signup returns immediately
+    send_verification_email_async(email, name, token, language_pref)
+    sent = True
 
     u = row_to_dict(user)
     u.pop('password_hash', None)
