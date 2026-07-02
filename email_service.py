@@ -1,12 +1,21 @@
-"""Email service for ENTR with multi-language support."""
+"""Email service for ENTR with multi-language support.
+
+Emails are sent through Brevo's HTTP API (POST /v3/smtp/email) using the
+BREVO_API_KEY env var. If the key is not set, emails are logged to the
+console instead.
+"""
 
 import os
 import logging
 from datetime import datetime
-from flask_mailman import Mail, EmailMessage
+
+import requests
 
 log = logging.getLogger(__name__)
-mail = Mail()
+
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+SENDER_NAME   = os.environ.get("BREVO_SENDER_NAME", "ENTR")
+SENDER_EMAIL  = os.environ.get("BREVO_SENDER_EMAIL", "entr.hiring@gmail.com")
 
 TRANSLATIONS = {
     "en": {
@@ -91,60 +100,8 @@ TRANSLATIONS = {
 
 
 def init_mail(app):
-    """Initialize Flask-Mail."""
-    app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "localhost")
-    app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
-    app.config["MAIL_USE_TLS"] = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
-    app.config["MAIL_USE_SSL"] = os.environ.get("MAIL_USE_SSL", "false").lower() == "true"
-    app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME")
-    app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD")
-    app.config["MAIL_DEFAULT_SENDER"] = os.environ.get("MAIL_DEFAULT_SENDER", "noreply@entr.app")
-    mail.init_app(app)
-
-
-def _smtp_configured() -> bool:
-    return bool(
-        os.environ.get("MAIL_SERVER")
-        and os.environ.get("MAIL_USERNAME")
-        and os.environ.get("MAIL_PASSWORD")
-    )
-
-
-def _smtplib_configured() -> bool:
-    return bool(
-        os.environ.get("SMTP_HOST")
-        and os.environ.get("SMTP_USER")
-        and os.environ.get("SMTP_PASS")
-    )
-
-
-def _send_via_smtplib(to_email: str, subject: str, body: str) -> bool:
-    """Plain smtplib fallback using SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS."""
-    import smtplib
-    from email.mime.text import MIMEText
-
-    host = os.environ["SMTP_HOST"]
-    port = int(os.environ.get("SMTP_PORT", 587))
-    user = os.environ["SMTP_USER"]
-    password = os.environ["SMTP_PASS"]
-    sender = os.environ.get("MAIL_DEFAULT_SENDER", user)
-
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["To"] = to_email
-
-    try:
-        with smtplib.SMTP(host, port, timeout=20) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(user, password)
-            server.sendmail(sender, [to_email], msg.as_string())
-        log.info(f"Email sent via smtplib to {to_email}: {subject}")
-        return True
-    except Exception as e:
-        log.error(f"smtplib send failed to {to_email}: {e}")
-        return False
+    """Kept for compatibility — Brevo's HTTP API needs no app setup."""
+    return None
 
 
 def _get_email_footer(lang: str = "en") -> str:
@@ -162,22 +119,37 @@ def _get_email_footer(lang: str = "en") -> str:
 
 
 def _send_mail(to_email: str, subject: str, body: str) -> bool:
-    """Send email via flask-mailman, falling back to smtplib, then console log."""
-    if _smtp_configured():
-        try:
-            msg = EmailMessage(subject=subject, body=body, to=[to_email])
-            msg.send()
-            log.info(f"Email sent to {to_email}: {subject}")
+    """Send email via Brevo's HTTP API; logs to console if no API key is set."""
+    api_key = os.environ.get("BREVO_API_KEY", "")
+    if not api_key:
+        log.info(f"BREVO_API_KEY not configured. EMAIL:\nTo: {to_email}\nSubject: {subject}\n\n{body}")
+        return False
+
+    payload = {
+        "sender": {"name": SENDER_NAME, "email": SENDER_EMAIL},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "textContent": body,
+    }
+    try:
+        resp = requests.post(
+            BREVO_API_URL,
+            json=payload,
+            headers={
+                "api-key": api_key,
+                "accept": "application/json",
+                "content-type": "application/json",
+            },
+            timeout=15,
+        )
+        if 200 <= resp.status_code < 300:
+            log.info(f"Email sent via Brevo to {to_email}: {subject}")
             return True
-        except Exception as e:
-            log.error(f"Failed to send email to {to_email}: {e}")
-            return False
-
-    if _smtplib_configured():
-        return _send_via_smtplib(to_email, subject, body)
-
-    log.info(f"SMTP not configured. EMAIL:\nTo: {to_email}\nSubject: {subject}\n\n{body}")
-    return False
+        log.error(f"Brevo send failed ({resp.status_code}) to {to_email}: {resp.text[:300]}")
+        return False
+    except requests.RequestException as e:
+        log.error(f"Brevo request error sending to {to_email}: {e}")
+        return False
 
 
 def send_welcome_email(to_email: str, name: str, lang: str = "en") -> bool:
