@@ -232,6 +232,28 @@ def send_application_status_email(
     return _send_mail(to_email, subject, body)
 
 
+def send_interview_proposal_email(
+    to_email: str,
+    worker_name: str,
+    date_time: str,
+    restaurant_name: str,
+    job_title: str,
+    lang: str = "en",
+) -> bool:
+    """Ask the worker to confirm a proposed interview time."""
+    trans = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+    subject = trans.get("email.subject.interview", "Interview scheduled")
+    body = (
+        f"Hi {worker_name},\n\n"
+        f"{restaurant_name} wants to interview you for {job_title}.\n"
+        f"Proposed time: {date_time}\n\n"
+        f"Please open your ENTR dashboard to confirm this time.\n\n"
+        f"The ENTR Team"
+        + _get_email_footer(lang).format(email=to_email)
+    )
+    return _send_mail(to_email, subject, body)
+
+
 def send_interview_scheduled_email(
     to_email: str,
     name: str,

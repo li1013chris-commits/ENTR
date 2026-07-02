@@ -6,7 +6,14 @@ import json
 import logging
 import threading
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as _tz
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    """Normalize to timezone-naive UTC so sqlite's TIMESTAMP converter can read it back."""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_tz.utc).replace(tzinfo=None)
+    return dt
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, flash, g, send_file, abort, jsonify,
@@ -1841,7 +1848,7 @@ def api_employer_schedule_interview(app_id):
         return jsonify({"error": "scheduled_at is required"}), 400
 
     try:
-        scheduled_at = datetime.fromisoformat(scheduled_at_str.replace("Z", "+00:00"))
+        scheduled_at = _to_naive_utc(datetime.fromisoformat(scheduled_at_str.replace("Z", "+00:00")))
     except (ValueError, AttributeError):
         return jsonify({"error": "Invalid date format"}), 400
 
@@ -1877,8 +1884,9 @@ def api_employer_schedule_interview(app_id):
 
     db.execute(
         """INSERT INTO interviews (application_id, employer_id, worker_id, scheduled_at,
-                                   google_event_id, calendar_invite_sent, confirmation_email_sent)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                   google_event_id, calendar_invite_sent, confirmation_email_sent,
+                                   worker_confirmed, employer_confirmed)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)""",
         (app_id, user["id"], app_row["worker_id"], scheduled_at,
          google_event_id or None, 1 if google_event_id else 0, email_sent),
     )
@@ -2546,6 +2554,181 @@ def api_suggest_interview_slots(app_id):
         "worker_availability": availability,
         "both_connected": bool(emp_token and wrk_token),
     })
+
+
+def _job_contact_info(job_row) -> str:
+    """Human-readable contact summary for calendar event descriptions."""
+    parts = []
+    labels = {
+        "contact_phone": "Phone", "contact_whatsapp": "WhatsApp",
+        "contact_wechat": "WeChat", "contact_line": "Line",
+        "contact_gchat": "Google Chat/Gmail",
+    }
+    for col, label in labels.items():
+        try:
+            val = job_row[col]
+        except (IndexError, KeyError):
+            val = None
+        if val:
+            parts.append(f"{label}: {val}")
+    return " | ".join(parts)
+
+
+@app.route("/api/employer/applications/<int:app_id>/propose-interview", methods=["POST"])
+@api_login_required(role="employer")
+def api_propose_interview(app_id):
+    """
+    Employer proposes an interview time (one of the suggested slots).
+    The worker is notified and must confirm before calendar events are created.
+    """
+    user = get_current_user()
+    db   = get_db()
+
+    app_row = db.execute(
+        """SELECT a.*, j.employer_id, j.title, u.name AS worker_name,
+                  u.email AS worker_email, u.language_pref AS worker_lang
+           FROM applications a
+           JOIN jobs j ON j.id = a.job_id
+           JOIN users u ON u.id = a.worker_id
+           WHERE a.id = ?""",
+        (app_id,),
+    ).fetchone()
+    if not app_row or app_row["employer_id"] != user["id"]:
+        return jsonify({"error": "Application not found"}), 404
+
+    existing = db.execute(
+        "SELECT * FROM interviews WHERE application_id = ?", (app_id,)
+    ).fetchone()
+    if existing and existing["status"] == "scheduled":
+        return jsonify({"error": "An interview is already proposed or scheduled for this application"}), 409
+
+    data = request.get_json(force=True)
+    scheduled_at_str = data.get("scheduled_at")
+    if not scheduled_at_str:
+        return jsonify({"error": "scheduled_at is required"}), 400
+    try:
+        scheduled_at = _to_naive_utc(datetime.fromisoformat(scheduled_at_str.replace("Z", "+00:00")))
+    except (ValueError, AttributeError):
+        return jsonify({"error": "Invalid date format"}), 400
+
+    if existing:
+        db.execute(
+            """UPDATE interviews SET scheduled_at=?, status='scheduled',
+                   worker_confirmed=0, employer_confirmed=1,
+                   google_event_id=NULL, calendar_invite_sent=0
+               WHERE application_id=?""",
+            (scheduled_at, app_id),
+        )
+    else:
+        db.execute(
+            """INSERT INTO interviews (application_id, employer_id, worker_id, scheduled_at,
+                                       worker_confirmed, employer_confirmed)
+               VALUES (?, ?, ?, ?, 0, 1)""",
+            (app_id, user["id"], app_row["worker_id"], scheduled_at),
+        )
+    db.commit()
+
+    # Notify the worker to confirm
+    try:
+        from email_service import send_interview_proposal_email
+        when = scheduled_at.strftime("%A, %B %d at %I:%M %p")
+        send_interview_proposal_email(
+            app_row["worker_email"], app_row["worker_name"], when,
+            user["restaurant_name"] or user["name"], app_row["title"],
+            app_row["worker_lang"] or "en",
+        )
+    except Exception as e:
+        log.warning("interview proposal email failed: %s", e)
+
+    interview = db.execute(
+        "SELECT * FROM interviews WHERE application_id = ?", (app_id,)
+    ).fetchone()
+    return jsonify({"interview": row_to_dict(interview)}), 201
+
+
+@app.route("/api/worker/interviews/<int:interview_id>/confirm", methods=["POST"])
+@api_login_required(role="worker")
+def api_worker_confirm_interview(interview_id):
+    """
+    Worker confirms a proposed interview. Creates the calendar event on both
+    calendars (when connected) and emails a confirmation to both parties.
+    """
+    user = get_current_user()
+    db   = get_db()
+
+    interview = db.execute(
+        """SELECT i.*, a.job_id, j.title, j.contact_phone, j.contact_whatsapp,
+                  j.contact_wechat, j.contact_line, j.contact_gchat,
+                  e.name AS employer_name, e.email AS employer_email,
+                  e.restaurant_name
+           FROM interviews i
+           JOIN applications a ON a.id = i.application_id
+           JOIN jobs j ON j.id = a.job_id
+           JOIN users e ON e.id = i.employer_id
+           WHERE i.id = ? AND i.worker_id = ?""",
+        (interview_id, user["id"]),
+    ).fetchone()
+    if not interview:
+        return jsonify({"error": "Interview not found"}), 404
+    if interview["worker_confirmed"]:
+        return jsonify({"error": "Interview already confirmed"}), 409
+
+    scheduled_at = interview["scheduled_at"]
+    if isinstance(scheduled_at, str):
+        scheduled_at = _to_naive_utc(datetime.fromisoformat(scheduled_at.replace("Z", "+00:00")))
+
+    from google_calendar import create_interview_event
+    google_event_id = create_interview_event(
+        employer_email=interview["employer_email"],
+        worker_email=user["email"],
+        scheduled_at=scheduled_at,
+        job_title=interview["title"],
+        restaurant_name=interview["restaurant_name"] or interview["employer_name"],
+        worker_name=user["name"],
+        worker_language=user["language_pref"] or "en",
+        employer_token_row=_get_oauth_token(interview["employer_id"]),
+        worker_token_row=_get_oauth_token(user["id"]),
+        contact_info=_job_contact_info(interview),
+    )
+
+    db.execute(
+        """UPDATE interviews SET worker_confirmed=1,
+               google_event_id=?, calendar_invite_sent=?
+           WHERE id=?""",
+        (google_event_id or None, 1 if google_event_id else 0, interview_id),
+    )
+    db.execute(
+        "UPDATE applications SET status='interview_scheduled' WHERE id=?",
+        (interview["application_id"],),
+    )
+    db.commit()
+
+    # Confirmation emails to both parties
+    email_sent = 0
+    try:
+        from email_service import send_interview_scheduled_email
+        when = scheduled_at.strftime("%A, %B %d at %I:%M %p")
+        restaurant = interview["restaurant_name"] or interview["employer_name"]
+        sent_w = send_interview_scheduled_email(
+            user["email"], user["name"], when, restaurant, interview["title"],
+            user["language_pref"] or "en",
+        )
+        sent_e = send_interview_scheduled_email(
+            interview["employer_email"], interview["employer_name"], when,
+            restaurant, interview["title"],
+        )
+        email_sent = 1 if (sent_w or sent_e) else 0
+    except Exception as e:
+        log.warning("interview confirmation email failed: %s", e)
+
+    if email_sent:
+        db.execute(
+            "UPDATE interviews SET confirmation_email_sent=1 WHERE id=?", (interview_id,)
+        )
+        db.commit()
+
+    updated = db.execute("SELECT * FROM interviews WHERE id=?", (interview_id,)).fetchone()
+    return jsonify({"interview": row_to_dict(updated), "calendar_event_created": bool(google_event_id)})
 
 
 # ── GDPR / CCPA compliance (Step 7) ───────────────────────────────────────────
