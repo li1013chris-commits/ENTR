@@ -67,7 +67,7 @@ def analyze_id_document(image_path: str) -> dict:
     client = _anthropic_client()
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=400,
             messages=[{
                 "role": "user",
@@ -154,7 +154,7 @@ def compare_faces_claude(id_image_path: str, selfie_path: str) -> tuple[float, b
     client = _anthropic_client()
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=150,
             messages=[{
                 "role": "user",
@@ -244,6 +244,7 @@ def run_verification(worker_id: int, id_image_path: str, selfie_path: str, db) -
             "Face comparison service unavailable. Your verification has been queued for manual review."
         )
         _write(worker_id, result, db, timestamp=False)
+        _delete_biometric_files(worker_id, [id_image_path, selfie_path], db)
         return result
 
     log.info("run_verification: face match score=%.1f for worker_id=%s", score, worker_id)
@@ -262,7 +263,28 @@ def run_verification(worker_id: int, id_image_path: str, selfie_path: str, db) -
         )
 
     _write(worker_id, result, db, timestamp=result["verification_status"] == "verified")
+    _delete_biometric_files(worker_id, [id_image_path, selfie_path], db)
     return result
+
+
+def _delete_biometric_files(worker_id: int, paths: list, db) -> None:
+    """
+    Data retention policy: ID photos and selfies are deleted from the server
+    immediately after the verification pipeline completes. The extracted data
+    (name, DOB, match score) is kept; the raw biometric images are not.
+    """
+    for p in paths:
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+        except OSError as e:
+            log.warning("could not delete verification file %s: %s", p, e)
+    db.execute(
+        "UPDATE verifications SET id_document_path=NULL, selfie_path=NULL WHERE worker_id=?",
+        (worker_id,),
+    )
+    db.commit()
+    log.info("run_verification: biometric files deleted for worker_id=%s", worker_id)
 
 
 def _write(worker_id: int, r: dict, db, timestamp: bool) -> None:

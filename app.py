@@ -1,8 +1,12 @@
 import os
+import re
+import time
 import uuid
 import json
 import logging
-from datetime import datetime
+import threading
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
 from flask import (
     Flask, render_template, request, redirect,
     url_for, session, flash, g, send_file, abort, jsonify,
@@ -27,9 +31,125 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
 app.config['SESSION_COOKIE_SAMESITE'] = 'None'
 app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+# Sessions expire after 7 days; logout clears them immediately.
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
-CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173", "https://entr.up.railway.app"], supports_credentials=True)
+CORS(
+    app,
+    origins=[
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5174", "http://127.0.0.1:5174",
+        "https://entr.up.railway.app",
+    ],
+    supports_credentials=True,
+)
 init_mail(app)
+
+
+@app.before_request
+def _make_session_permanent():
+    session.permanent = True
+    g._request_start = time.monotonic()
+
+
+# ── Security headers ──────────────────────────────────────────────────────────
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    resp.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "frame-ancestors 'none'",
+    )
+    return resp
+
+
+# ── Request logging ───────────────────────────────────────────────────────────
+
+@app.after_request
+def _request_log(resp):
+    try:
+        duration_ms = (time.monotonic() - getattr(g, "_request_start", time.monotonic())) * 1000
+        log.info("%s %s -> %s (%.0fms)", request.method, request.path, resp.status_code, duration_ms)
+    except Exception:
+        pass
+    return resp
+
+
+# ── Global error handler ──────────────────────────────────────────────────────
+
+@app.errorhandler(Exception)
+def _handle_unexpected_error(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        # Preserve intentional aborts (404/403/etc.) with a JSON body for API paths
+        if request.path.startswith("/api/"):
+            return jsonify({"error": e.description or e.name}), e.code
+        return e
+    log.exception("Unhandled exception on %s %s", request.method, request.path)
+    return jsonify({"error": "Something went wrong on our side. Please try again."}), 500
+
+
+# ── Rate limiting (in-memory sliding window) ──────────────────────────────────
+
+_rate_lock = threading.Lock()
+_ip_hits: dict = defaultdict(deque)       # ip -> deque of timestamps
+_ai_hits: dict = defaultdict(deque)       # user/ip key -> deque of timestamps
+
+RATE_LIMIT_PER_MIN = 100      # all endpoints, per IP
+AI_RATE_LIMIT_PER_MIN = 10    # AI-powered endpoints, per user
+
+
+def _client_ip() -> str:
+    fwd = request.headers.get("X-Forwarded-For", "")
+    return fwd.split(",")[0].strip() if fwd else (request.remote_addr or "unknown")
+
+
+def _hit(bucket: dict, key: str, limit: int, window: float = 60.0) -> bool:
+    """Record a hit; return True if within limit."""
+    now = time.monotonic()
+    with _rate_lock:
+        q = bucket[key]
+        while q and now - q[0] > window:
+            q.popleft()
+        if len(q) >= limit:
+            return False
+        q.append(now)
+        return True
+
+
+@app.before_request
+def _global_rate_limit():
+    if request.method == "OPTIONS":
+        return None
+    if not _hit(_ip_hits, _client_ip(), RATE_LIMIT_PER_MIN):
+        return jsonify({"error": "Too many requests. Please slow down and try again."}), 429
+    return None
+
+
+def ai_rate_limited() -> bool:
+    """Per-user limiter for endpoints that call Claude. True = over the limit."""
+    key = f"user:{session.get('user_id')}" if session.get("user_id") else f"ip:{_client_ip()}"
+    return not _hit(_ai_hits, key, AI_RATE_LIMIT_PER_MIN)
+
+
+# ── Input sanitization ────────────────────────────────────────────────────────
+
+_TAG_RE = re.compile(r"<[^>]*>")
+
+def clean_text(value, max_len: int = 2000) -> str:
+    """Strip HTML tags, control chars, and cap length. Safe for any text input."""
+    if value is None:
+        return ""
+    text = str(value)
+    text = _TAG_RE.sub("", text)
+    text = "".join(ch for ch in text if ch == "\n" or ch == "\t" or ord(ch) >= 32)
+    return text.strip()[:max_len]
 
 try:
     init_db()
@@ -128,7 +248,10 @@ def api_login_required(role=None):
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"}), 200
+    return jsonify({
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }), 200
 
 
 # ── Public routes ─────────────────────────────────────────────────────────────
@@ -806,19 +929,39 @@ def api_auth_validate_session():
 @app.route("/api/auth/signup", methods=["POST"])
 def api_auth_signup():
     data = request.get_json(force=True)
-    email           = (data.get("email") or "").strip().lower()
+    email           = clean_text(data.get("email"), 254).lower()
     password        = data.get("password") or ""
-    name            = (data.get("name") or "").strip()
+    name            = clean_text(data.get("name"), 100)
     role            = data.get("role") or ""
-    language_pref   = data.get("language_pref") or "en"
-    restaurant_name = (data.get("restaurant_name") or "").strip()
-    phone           = (data.get("phone") or "").strip()
+    language_pref   = clean_text(data.get("language_pref"), 8) or "en"
+    restaurant_name = clean_text(data.get("restaurant_name"), 120)
+    phone           = clean_text(data.get("phone"), 30)
+    date_of_birth   = clean_text(data.get("date_of_birth"), 10)   # YYYY-MM-DD
+    us_state        = clean_text(data.get("us_state"), 2).upper()
+    tos_accepted    = bool(data.get("tos_accepted"))
 
     if not all([email, password, name, role]):
         return jsonify({'error': 'Please fill in all required fields'}), 400
 
     if role not in ("employer", "worker"):
         return jsonify({'error': 'Invalid role'}), 400
+
+    if len(password) < 8:
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+    if not tos_accepted:
+        return jsonify({'error': 'Please agree to the Privacy Policy and Terms of Service'}), 400
+
+    under_18 = False
+    if date_of_birth:
+        try:
+            from datetime import date as _date
+            dob = _date.fromisoformat(date_of_birth)
+            today = _date.today()
+            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+            under_18 = age < 18
+        except ValueError:
+            return jsonify({'error': 'Invalid date of birth'}), 400
 
     db = get_db()
     if db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone():
@@ -830,9 +973,10 @@ def api_auth_signup():
     db.execute(
         """INSERT INTO users
            (email, password_hash, role, name, phone, language_pref, restaurant_name,
-            email_verified, email_verification_token)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-        (email, pw_hash, role, name, phone, language_pref, restaurant_name, token),
+            email_verified, email_verification_token, date_of_birth, us_state, tos_accepted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, CURRENT_TIMESTAMP)""",
+        (email, pw_hash, role, name, phone, language_pref, restaurant_name, token,
+         date_of_birth or None, us_state or None),
     )
     db.commit()
 
@@ -846,7 +990,7 @@ def api_auth_signup():
     u = row_to_dict(user)
     u.pop('password_hash', None)
     u.pop('email_verification_token', None)
-    return jsonify({'user': u, 'verification_email_sent': sent}), 201
+    return jsonify({'user': u, 'verification_email_sent': sent, 'under_18': under_18}), 201
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -934,22 +1078,83 @@ def api_employer_jobs():
     return jsonify({'jobs': [row_to_dict(j) for j in jobs]})
 
 
+PAY_TYPES = {
+    "per_hour": "/hr", "per_day": "/day", "per_week": "/week",
+    "biweekly": " biweekly", "per_month": "/month", "salary_year": "/yr",
+}
+HOURS_OPTIONS = {
+    "full_time":     "Full-time (35–40 hrs/wk)",
+    "part_time":     "Part-time (15–25 hrs/wk)",
+    "weekends_only": "Weekends Only",
+    "flexible":      "Flexible",
+    "on_call":       "On-call",
+}
+CONTACT_FIELDS = ("contact_phone", "contact_whatsapp", "contact_wechat",
+                  "contact_line", "contact_gchat")
+
+
 @app.route("/api/employer/jobs", methods=["POST"])
 @api_login_required(role="employer")
 def api_employer_create_job():
     user = get_current_user()
     data = request.get_json(force=True)
 
-    title       = (data.get("title") or "").strip()
-    pay         = (data.get("pay") or "").strip()
-    hours       = (data.get("hours") or "").strip()
-    exp         = int(data.get("experience_required") or 0)
-    lang_pref   = (data.get("language_preference") or "").strip()
-    location    = (data.get("location") or "").strip()
-    description = (data.get("description") or "").strip()
+    title      = clean_text(data.get("title"), 120)
+    location   = clean_text(data.get("location"), 200)
+    exp        = int(data.get("experience_required") or 0)
 
-    if not all([title, pay, hours]):
-        return jsonify({'error': 'title, pay, and hours are required'}), 400
+    # Structured pay (Step 2)
+    pay_amount = clean_text(data.get("pay_amount"), 20)
+    pay_type   = clean_text(data.get("pay_type"), 20) or "per_hour"
+    tips       = 1 if data.get("tips_included") in (True, "yes", "true", 1) else 0
+
+    # Hours dropdown (Step 2)
+    hours_key  = clean_text(data.get("hours"), 40)
+
+    # Free-text sections (Step 2)
+    skills_text     = clean_text(data.get("skills_text"), 1000)
+    additional_info = clean_text(data.get("additional_info"), 2000)
+
+    # Contact methods (Step 3)
+    contacts = {f: clean_text(data.get(f), 120) for f in CONTACT_FIELDS}
+
+    # Legacy fallback: old clients send a raw `pay` string
+    legacy_pay = clean_text(data.get("pay"), 60)
+
+    if not title:
+        return jsonify({'error': 'Job title is required'}), 400
+    if not pay_amount and not legacy_pay:
+        return jsonify({'error': 'Pay is required'}), 400
+    if pay_amount:
+        try:
+            float(pay_amount.replace(",", ""))
+        except ValueError:
+            return jsonify({'error': 'Pay must be a number'}), 400
+        if pay_type not in PAY_TYPES:
+            return jsonify({'error': 'Invalid pay period'}), 400
+    if not hours_key:
+        return jsonify({'error': 'Hours are required'}), 400
+    if not any(contacts.values()):
+        return jsonify({'error': 'Please add at least one contact method so workers can reach you'}), 400
+
+    # Display strings
+    if pay_amount:
+        pay = f"${pay_amount}{PAY_TYPES[pay_type]}"
+        if tips:
+            pay += " + tips"
+    else:
+        pay = legacy_pay
+    hours = HOURS_OPTIONS.get(hours_key, clean_text(data.get("hours"), 80))
+
+    parts = []
+    if skills_text:
+        parts.append(f"Skills needed: {skills_text}")
+    if additional_info:
+        parts.append(additional_info)
+    legacy_desc = clean_text(data.get("description"), 2000)
+    if legacy_desc and not parts:
+        parts.append(legacy_desc)
+    description = "\n\n".join(parts)
 
     import datetime as _datetime
     expires_at = _datetime.datetime.utcnow() + _datetime.timedelta(days=30)
@@ -958,9 +1163,16 @@ def api_employer_create_job():
     db.execute(
         """INSERT INTO jobs
            (employer_id, title, pay, hours, experience_required,
-            language_preference, location, description, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user["id"], title, pay, hours, exp, lang_pref, location, description, expires_at),
+            language_preference, location, description, expires_at,
+            pay_amount, pay_type, tips_included, skills_text, additional_info,
+            contact_phone, contact_whatsapp, contact_wechat, contact_line, contact_gchat)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user["id"], title, pay, hours, exp, "", location, description, expires_at,
+         pay_amount or None, pay_type if pay_amount else None, tips,
+         skills_text or None, additional_info or None,
+         contacts["contact_phone"] or None, contacts["contact_whatsapp"] or None,
+         contacts["contact_wechat"] or None, contacts["contact_line"] or None,
+         contacts["contact_gchat"] or None),
     )
     db.commit()
 
@@ -1104,7 +1316,7 @@ def api_worker_apply(job_id):
         return jsonify({'error': 'You have already applied to this job'}), 409
 
     data         = request.get_json(force=True)
-    cover_letter = (data.get("cover_letter") or "").strip()
+    cover_letter = clean_text(data.get("cover_letter"), 3000)
 
     verification = get_verification(user["id"])
     vstatus      = verification["verification_status"] if verification else None
@@ -1260,13 +1472,13 @@ def api_worker_update_profile():
 
     data = request.get_json(force=True)
 
-    bio                = (data.get("bio") or "").strip()
+    bio                = clean_text(data.get("bio"), 2000)
     experience_years   = int(data.get("experience_years") or 0)
-    languages_spoken   = (data.get("languages_spoken") or "").strip()
-    phone              = (data.get("phone") or "").strip()
-    skills             = (data.get("skills") or "").strip()
-    availability       = (data.get("availability") or "").strip()
-    dialect_preference = (data.get("dialect_preference") or "").strip()
+    languages_spoken   = clean_text(data.get("languages_spoken"), 200)
+    phone              = clean_text(data.get("phone"), 30)
+    skills             = clean_text(data.get("skills"), 1000)
+    availability       = clean_text(data.get("availability"), 500)
+    dialect_preference = clean_text(data.get("dialect_preference"), 100)
 
     db.execute(
         """UPDATE users
@@ -1290,6 +1502,9 @@ def api_worker_translate_job(job_id):
     """On-demand translation or plain-language simplification of a job description."""
     import anthropic as _anthropic
     import logging as _log
+
+    if ai_rate_limited():
+        return jsonify({"error": "Too many AI requests. Please wait a minute and try again."}), 429
 
     data   = request.get_json(force=True)
     action = data.get("action", "simplify")   # "translate" | "simplify"
@@ -1366,8 +1581,8 @@ def api_employer_verify_submit():
     user = get_current_user()
     db   = get_db()
 
-    business_name    = (request.form.get("business_name") or "").strip()
-    business_address = (request.form.get("business_address") or "").strip()
+    business_name    = clean_text(request.form.get("business_name"), 200)
+    business_address = clean_text(request.form.get("business_address"), 300)
 
     if not business_name or not business_address:
         return jsonify({"error": "Business name and address are required."}), 400
@@ -1639,13 +1854,33 @@ def api_employer_schedule_interview(app_id):
         job_title=app_row["title"],
         restaurant_name=user["restaurant_name"] or user["name"],
         worker_name=app_row["worker_name"],
-        worker_language=app_row.get("language_pref", "en"),
+        worker_language="en",
+        employer_token_row=_get_oauth_token(user["id"]),
+        worker_token_row=_get_oauth_token(app_row["worker_id"]),
     )
 
+    # Manual fallback / belt-and-braces: always email both parties a confirmation.
+    email_sent = 0
+    try:
+        from email_service import send_interview_scheduled_email
+        when = scheduled_at.strftime("%A, %B %d at %I:%M %p")
+        restaurant = user["restaurant_name"] or user["name"]
+        sent_w = send_interview_scheduled_email(
+            app_row["worker_email"], app_row["worker_name"], when, restaurant, app_row["title"],
+        )
+        sent_e = send_interview_scheduled_email(
+            user["email"], user["name"], when, restaurant, app_row["title"],
+        )
+        email_sent = 1 if (sent_w or sent_e) else 0
+    except Exception as e:
+        log.warning("interview confirmation email failed: %s", e)
+
     db.execute(
-        """INSERT INTO interviews (application_id, employer_id, worker_id, scheduled_at, google_event_id, calendar_invite_sent)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (app_id, user["id"], app_row["worker_id"], scheduled_at, google_event_id or None, 1 if google_event_id else 0),
+        """INSERT INTO interviews (application_id, employer_id, worker_id, scheduled_at,
+                                   google_event_id, calendar_invite_sent, confirmation_email_sent)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (app_id, user["id"], app_row["worker_id"], scheduled_at,
+         google_event_id or None, 1 if google_event_id else 0, email_sent),
     )
     db.execute(
         "UPDATE applications SET status = 'interview_scheduled' WHERE id = ?", (app_id,)
@@ -1808,8 +2043,22 @@ def api_delete_account():
     user_name  = user["name"]
     user_lang  = user["language_pref"] or "en"
 
+    def _remove_files(paths):
+        for p in paths:
+            try:
+                if p and os.path.exists(p):
+                    os.remove(p)
+            except OSError as e:
+                app.logger.warning("could not delete file %s: %s", p, e)
+
     try:
         if user["role"] == "employer":
+            ev = db.execute(
+                "SELECT business_license_path FROM employer_verifications WHERE employer_id = ?",
+                (user_id,),
+            ).fetchone()
+            if ev:
+                _remove_files([ev["business_license_path"]])
             # FK-safe deletion order:
             # referrals → interviews → applications → employer_verifications → jobs
             # (referrals and interviews both reference applications; applications reference jobs)
@@ -1823,6 +2072,12 @@ def api_delete_account():
             db.execute("DELETE FROM jobs WHERE employer_id = ?",                   (user_id,))
 
         elif user["role"] == "worker":
+            v = db.execute(
+                "SELECT id_document_path, selfie_path FROM verifications WHERE worker_id = ?",
+                (user_id,),
+            ).fetchone()
+            if v:
+                _remove_files([v["id_document_path"], v["selfie_path"]])
             # FK-safe deletion order:
             # referrals → interviews → applications → verifications
             db.execute("DELETE FROM referrals    WHERE worker_id = ?", (user_id,))
@@ -1830,11 +2085,21 @@ def api_delete_account():
             db.execute("DELETE FROM applications WHERE worker_id = ?", (user_id,))
             db.execute("DELETE FROM verifications WHERE worker_id = ?", (user_id,))
 
+        db.execute("DELETE FROM oauth_tokens WHERE user_id = ?", (user_id,))
+
         # Replace email with an untraceable placeholder — cannot set NULL because the
         # column has NOT NULL constraint, and UNIQUE means we need a distinct value per row.
+        # All other PII columns are wiped outright.
         placeholder = f"deleted_{user_id}_{int(deletion_time.timestamp())}@deleted.invalid"
         db.execute(
-            "UPDATE users SET deleted_at = ?, email = ? WHERE id = ?",
+            """UPDATE users SET
+                 deleted_at = ?, email = ?, name = 'Deleted User', phone = NULL,
+                 bio = NULL, languages_spoken = '', restaurant_name = NULL,
+                 skills = '', availability = '', dialect_preference = '',
+                 date_of_birth = NULL, us_state = NULL,
+                 password_reset_token = NULL, password_reset_expiry = NULL,
+                 email_verification_token = NULL
+               WHERE id = ?""",
             (deletion_time, placeholder, user_id),
         )
         db.commit()
@@ -1871,7 +2136,7 @@ def api_generate_qrcode(job_id):
         import io
         from PIL import Image
 
-        frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+        frontend_url = os.environ.get("FRONTEND_URL", "https://entr.up.railway.app")
         job_url = f"{frontend_url}/jobs/{job_id}"
 
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
@@ -1966,6 +2231,370 @@ def api_renew_job(job_id):
     db.commit()
 
     return jsonify({"ok": True, "expires_at": new_expiry.isoformat()})
+
+
+# ── Approximate location search (Step 4) ─────────────────────────────────────
+
+_location_match_cache: dict = {}
+
+
+def _haiku_location_match(query: str, locations: list[str]) -> dict:
+    """
+    Ask Haiku which stored job locations are within ~30 / ~60 miles of the
+    searched location. Returns {location: {"miles": int, "within_30": bool}}.
+    Results are cached per (query, locations-set).
+    """
+    import anthropic as _anthropic
+
+    cache_key = (query.lower(), tuple(sorted(set(locations))))
+    if cache_key in _location_match_cache:
+        return _location_match_cache[cache_key]
+
+    prompt = (
+        "You are a US geography assistant. A job seeker searched for jobs near: "
+        f"\"{query}\".\n\n"
+        "Here are the locations of available jobs:\n"
+        + "\n".join(f"- {loc}" for loc in set(locations) if loc)
+        + "\n\nFor each job location, estimate the driving distance in miles from the "
+        "searched location. Interpret abbreviations, misspellings, and neighborhoods "
+        "sensibly (e.g. 'Greensboro' is near High Point, Burlington, Kernersville NC).\n\n"
+        "Respond with ONLY a JSON object mapping each job location string EXACTLY as "
+        "given to an integer estimated miles, like:\n"
+        '{"High Point, NC": 18, "Charlotte, NC": 95}\n'
+        "If a location is too vague to place, use 9999."
+    )
+
+    client = _anthropic.Anthropic()
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=800,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = message.content[0].text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    distances = json.loads(text.strip())
+
+    result = {}
+    for loc, miles in distances.items():
+        try:
+            m = int(miles)
+        except (TypeError, ValueError):
+            m = 9999
+        result[loc] = m
+    _location_match_cache[cache_key] = result
+    return result
+
+
+@app.route("/api/worker/jobs/search")
+@api_login_required(role="worker")
+def api_worker_search_jobs():
+    """
+    Location-aware job search. ?location=Greensboro returns open jobs within
+    ~30 miles (expanding to 60 if none), each with an approximate distance.
+    """
+    query = clean_text(request.args.get("location"), 120)
+    db    = get_db()
+    jobs  = db.execute(
+        """SELECT j.*, u.name AS employer_name, u.restaurant_name
+           FROM jobs j JOIN users u ON u.id = j.employer_id
+           WHERE j.status = 'open'
+           ORDER BY j.created_at DESC""",
+    ).fetchall()
+    jobs = [row_to_dict(j) for j in jobs]
+
+    if not query:
+        return jsonify({"jobs": jobs, "radius_miles": None, "expanded": False})
+
+    if ai_rate_limited():
+        return jsonify({"error": "Too many AI requests. Please wait a minute and try again."}), 429
+
+    locations = [j["location"] for j in jobs if j.get("location")]
+    if not locations:
+        return jsonify({"jobs": [], "radius_miles": 30, "expanded": False,
+                        "message": "No jobs have locations yet."})
+
+    try:
+        distances = _haiku_location_match(query, locations)
+    except Exception as e:
+        log.error("location search failed: %s", e)
+        # Graceful fallback: plain substring match
+        q = query.lower()
+        matched = [j for j in jobs if j.get("location") and q in j["location"].lower()]
+        return jsonify({"jobs": matched, "radius_miles": None, "expanded": False})
+
+    def with_distance(max_miles: int):
+        out = []
+        for j in jobs:
+            loc = j.get("location")
+            if not loc:
+                continue
+            miles = distances.get(loc, 9999)
+            if miles <= max_miles:
+                item = dict(j)
+                item["distance_miles"] = miles
+                out.append(item)
+        out.sort(key=lambda x: x["distance_miles"])
+        return out
+
+    within_30 = with_distance(30)
+    if within_30:
+        return jsonify({"jobs": within_30, "radius_miles": 30, "expanded": False})
+
+    within_60 = with_distance(60)
+    return jsonify({
+        "jobs": within_60,
+        "radius_miles": 60,
+        "expanded": True,
+        "message": "No jobs nearby — showing results within 60 miles",
+    })
+
+
+# ── Buddy chatbot (Step 5) ────────────────────────────────────────────────────
+
+BUDDY_SYSTEM_PROMPT = """You are Buddy, a helpful assistant built into ENTR, a hiring platform for immigrant restaurant workers and owners.
+
+Your job is to help users navigate and use the ENTR app. You can help with:
+- How to post a job (for employers)
+- How to apply to a job (for workers)
+- How to verify identity
+- How to schedule an interview
+- How to use the translation feature
+- How to contact an employer
+- General questions about how ENTR works
+- Translating any text the user needs help with
+
+You must never:
+- Recommend a specific job to a worker
+- Tell someone which job is best for them
+- Give career advice or hiring advice
+- Answer questions unrelated to ENTR
+
+Always respond in the same language the user writes in. Be warm, simple, and clear. Use short sentences. Avoid jargon.
+
+If asked about anything outside of ENTR, say: "I can only help with questions about ENTR. What would you like to know?" """
+
+
+@app.route("/api/buddy", methods=["POST"])
+def api_buddy():
+    """Stateless Buddy chat. Accepts {message, history:[{role,content}]}."""
+    import anthropic as _anthropic
+
+    if ai_rate_limited():
+        return jsonify({"error": "Too many messages. Please wait a minute and try again."}), 429
+
+    data    = request.get_json(force=True)
+    message = clean_text(data.get("message"), 2000)
+    history = data.get("history") or []
+
+    if not message:
+        return jsonify({"error": "Message is required"}), 400
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or api_key.startswith("your_"):
+        return jsonify({"error": "Buddy is not available right now."}), 503
+
+    # Rebuild the session-only conversation (cap at last 20 turns, sanitize)
+    messages = []
+    for turn in history[-20:]:
+        role = turn.get("role")
+        content = clean_text(turn.get("content"), 2000)
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": message})
+
+    try:
+        client = _anthropic.Anthropic()
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            system=BUDDY_SYSTEM_PROMPT,
+            messages=messages,
+        )
+        reply = resp.content[0].text.strip()
+        return jsonify({"reply": reply})
+    except Exception as e:
+        log.error("buddy error: %s: %s", type(e).__name__, e)
+        return jsonify({"error": "Buddy could not answer right now. Please try again."}), 500
+
+
+# ── Google Calendar OAuth (Step 6) ────────────────────────────────────────────
+
+def _get_oauth_token(user_id: int):
+    return get_db().execute(
+        "SELECT * FROM oauth_tokens WHERE user_id = ? AND provider = 'google'", (user_id,)
+    ).fetchone()
+
+
+def _backend_url() -> str:
+    return os.environ.get("BACKEND_URL", "https://entr-production.up.railway.app").rstrip("/")
+
+
+@app.route("/api/calendar/status")
+@api_login_required()
+def api_calendar_status():
+    from google_calendar import oauth_configured
+    user  = get_current_user()
+    token = _get_oauth_token(user["id"])
+    return jsonify({
+        "oauth_available": oauth_configured(),
+        "connected": bool(token and token["refresh_token"]),
+    })
+
+
+@app.route("/api/calendar/connect")
+@api_login_required()
+def api_calendar_connect():
+    """Start the Google OAuth flow; returns the URL to redirect the user to."""
+    from google_calendar import get_oauth_flow
+    flow = get_oauth_flow(f"{_backend_url()}/api/calendar/callback")
+    if not flow:
+        return jsonify({"error": "Google Calendar is not configured on the server."}), 503
+    auth_url, state = flow.authorization_url(
+        access_type="offline", include_granted_scopes="true", prompt="consent",
+    )
+    session["gcal_oauth_state"] = state
+    return jsonify({"auth_url": auth_url})
+
+
+@app.route("/api/calendar/callback")
+def api_calendar_callback():
+    """OAuth redirect target. Stores tokens then bounces back to the frontend."""
+    from google_calendar import get_oauth_flow
+    frontend = os.environ.get("FRONTEND_URL", "https://entr.up.railway.app").rstrip("/")
+
+    user = get_current_user()
+    if not user:
+        return redirect(f"{frontend}/login")
+
+    flow = get_oauth_flow(f"{_backend_url()}/api/calendar/callback")
+    if not flow:
+        return redirect(frontend)
+
+    try:
+        flow.fetch_token(authorization_response=request.url.replace("http://", "https://", 1)
+                         if request.url.startswith("http://") else request.url)
+        creds = flow.credentials
+        db = get_db()
+        db.execute(
+            """INSERT INTO oauth_tokens (user_id, provider, access_token, refresh_token, token_expiry)
+               VALUES (?, 'google', ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 access_token=excluded.access_token,
+                 refresh_token=COALESCE(excluded.refresh_token, oauth_tokens.refresh_token),
+                 token_expiry=excluded.token_expiry""",
+            (user["id"], creds.token, creds.refresh_token,
+             creds.expiry.isoformat() if creds.expiry else None),
+        )
+        db.commit()
+    except Exception as e:
+        log.error("calendar oauth callback failed: %s", e)
+
+    dest = "/employer/dashboard" if user["role"] == "employer" else "/worker/dashboard"
+    return redirect(f"{frontend}{dest}?calendar=connected")
+
+
+@app.route("/api/calendar/disconnect", methods=["POST"])
+@api_login_required()
+def api_calendar_disconnect():
+    user = get_current_user()
+    db = get_db()
+    db.execute("DELETE FROM oauth_tokens WHERE user_id = ?", (user["id"],))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/employer/applications/<int:app_id>/suggest-slots")
+@api_login_required(role="employer")
+def api_suggest_interview_slots(app_id):
+    """
+    Suggest 3 interview times that work for both parties.
+    Uses Google free/busy when both calendars are connected; otherwise returns
+    {slots: null} so the frontend falls back to the manual date/time form.
+    """
+    from google_calendar import suggest_slots
+    user = get_current_user()
+    db   = get_db()
+
+    app_row = db.execute(
+        """SELECT a.*, j.employer_id FROM applications a
+           JOIN jobs j ON j.id = a.job_id WHERE a.id = ?""",
+        (app_id,),
+    ).fetchone()
+    if not app_row or app_row["employer_id"] != user["id"]:
+        return jsonify({"error": "Application not found"}), 404
+
+    emp_token = _get_oauth_token(user["id"])
+    wrk_token = _get_oauth_token(app_row["worker_id"])
+
+    slots = None
+    if emp_token and wrk_token:
+        slots = suggest_slots(emp_token, wrk_token, count=3)
+
+    # Include the worker's manually-entered availability for the fallback UI
+    availability = None
+    if app_row["worker_availability"]:
+        try:
+            availability = json.loads(app_row["worker_availability"])
+        except json.JSONDecodeError:
+            pass
+
+    return jsonify({
+        "slots": slots,
+        "worker_availability": availability,
+        "both_connected": bool(emp_token and wrk_token),
+    })
+
+
+# ── GDPR / CCPA compliance (Step 7) ───────────────────────────────────────────
+
+@app.route("/api/user/export")
+@api_login_required()
+def api_export_data():
+    """Export all of the user's data as JSON (GDPR right to portability)."""
+    user = get_current_user()
+    db   = get_db()
+    uid  = user["id"]
+
+    out = {"exported_at": datetime.utcnow().isoformat() + "Z"}
+
+    u = row_to_dict(user)
+    u.pop("password_hash", None)
+    u.pop("email_verification_token", None)
+    u.pop("password_reset_token", None)
+    out["account"] = u
+
+    if user["role"] == "worker":
+        out["applications"] = [row_to_dict(r) for r in db.execute(
+            "SELECT * FROM applications WHERE worker_id = ?", (uid,)).fetchall()]
+        v = db.execute("SELECT * FROM verifications WHERE worker_id = ?", (uid,)).fetchone()
+        out["verification"] = row_to_dict(v)
+        out["interviews"] = [row_to_dict(r) for r in db.execute(
+            "SELECT * FROM interviews WHERE worker_id = ?", (uid,)).fetchall()]
+        out["referrals"] = [row_to_dict(r) for r in db.execute(
+            "SELECT * FROM referrals WHERE worker_id = ?", (uid,)).fetchall()]
+    else:
+        out["jobs"] = [row_to_dict(r) for r in db.execute(
+            "SELECT * FROM jobs WHERE employer_id = ?", (uid,)).fetchall()]
+        ev = db.execute("SELECT * FROM employer_verifications WHERE employer_id = ?", (uid,)).fetchone()
+        out["business_verification"] = row_to_dict(ev)
+        out["interviews"] = [row_to_dict(r) for r in db.execute(
+            "SELECT * FROM interviews WHERE employer_id = ?", (uid,)).fetchall()]
+        out["referrals_made"] = [row_to_dict(r) for r in db.execute(
+            "SELECT * FROM referrals WHERE referring_employer_id = ?", (uid,)).fetchall()]
+
+    resp = jsonify(out)
+    resp.headers["Content-Disposition"] = "attachment; filename=entr-data-export.json"
+    return resp
+
+
+@app.route("/api/account", methods=["DELETE"])
+@api_login_required()
+def api_delete_account_rest():
+    """GDPR right-to-erasure endpoint. Same behavior as POST /api/user/delete-account."""
+    return api_delete_account()
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

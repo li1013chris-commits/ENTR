@@ -156,7 +156,7 @@ def send_welcome_email(to_email: str, name: str, lang: str = "en") -> bool:
 
 def send_verification_email(to_email: str, name: str, token: str, lang: str = "en") -> bool:
     """Send account verification email."""
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://entr.up.railway.app")
     verify_url = f"{frontend_url}/verify-email?token={token}"
 
     trans = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
@@ -174,7 +174,7 @@ def send_verification_email(to_email: str, name: str, token: str, lang: str = "e
 
 def send_password_reset_email(to_email: str, name: str, token: str, lang: str = "en") -> bool:
     """Send password reset email."""
-    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://entr.up.railway.app")
     reset_url = f"{frontend_url}/reset-password?token={token}"
 
     trans = TRANSLATIONS.get(lang, TRANSLATIONS["en"])

@@ -9,6 +9,8 @@ def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DATABASE, detect_types=sqlite3.PARSE_DECLTYPES)
         g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA journal_mode=WAL")
+        g.db.execute("PRAGMA busy_timeout=5000")
     return g.db
 
 
@@ -147,6 +149,51 @@ def _migrate(conn):
 
     # jobs: add expiry field
     add("jobs", "expires_at", "TIMESTAMP")
+
+    # jobs: structured pay + skills/info + contact methods (Steps 2-3)
+    for col, typedef in [
+        ("pay_amount",       "TEXT"),
+        ("pay_type",         "TEXT"),
+        ("tips_included",    "INTEGER DEFAULT 0"),
+        ("skills_text",      "TEXT"),
+        ("additional_info",  "TEXT"),
+        ("contact_phone",    "TEXT"),
+        ("contact_whatsapp", "TEXT"),
+        ("contact_wechat",   "TEXT"),
+        ("contact_line",     "TEXT"),
+        ("contact_gchat",    "TEXT"),
+    ]:
+        add("jobs", col, typedef)
+
+    # users: compliance fields (Step 7)
+    for col, typedef in [
+        ("date_of_birth",   "TEXT"),
+        ("us_state",        "TEXT"),
+        ("tos_accepted_at", "TIMESTAMP"),
+    ]:
+        add("users", col, typedef)
+
+    # Google Calendar OAuth tokens (Step 6)
+    if "oauth_tokens" not in tables():
+        cursor.execute("""
+            CREATE TABLE oauth_tokens (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id       INTEGER NOT NULL UNIQUE REFERENCES users(id),
+                provider      TEXT NOT NULL DEFAULT 'google',
+                access_token  TEXT,
+                refresh_token TEXT,
+                token_expiry  TIMESTAMP,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+    # interviews: proposed slots + confirmations (Step 6)
+    for col, typedef in [
+        ("proposed_slots",     "TEXT"),
+        ("worker_confirmed",   "INTEGER DEFAULT 0"),
+        ("employer_confirmed", "INTEGER DEFAULT 0"),
+    ]:
+        add("interviews", col, typedef)
 
     # employer_verifications table
     if "employer_verifications" not in tables():
