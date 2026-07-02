@@ -74,7 +74,17 @@ The overall score should weight these factors appropriately. Consider the applic
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
-        text   = message.content[0].text.strip()
+        text = message.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        # Fall back to grabbing the outermost JSON object if extra prose slipped in
+        if not text.startswith("{"):
+            start, end = text.find("{"), text.rfind("}")
+            if start != -1 and end > start:
+                text = text[start:end + 1]
         result = json.loads(text)
         score  = max(0, min(100, int(result.get("score", 50))))
         summary = result.get("summary", "Unable to generate summary.")
