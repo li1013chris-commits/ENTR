@@ -239,6 +239,32 @@ def _migrate(conn):
             )
         """)
 
+    # worker-submitted job reports (no admin UI yet — storage only)
+    if "reports" not in tables():
+        cursor.execute("""
+            CREATE TABLE reports (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id      INTEGER NOT NULL REFERENCES jobs(id),
+                worker_id   INTEGER NOT NULL REFERENCES users(id),
+                reason      TEXT NOT NULL,
+                notes       TEXT,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+    # phone OTPs for signup verification
+    if "phone_otps" not in tables():
+        cursor.execute("""
+            CREATE TABLE phone_otps (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone       TEXT NOT NULL UNIQUE,
+                code_hash   TEXT NOT NULL,
+                attempts    INTEGER DEFAULT 0,
+                expires_at  TIMESTAMP NOT NULL,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
     # interviews table
     if "interviews" not in tables():
         cursor.execute("""
@@ -364,6 +390,24 @@ def init_db():
                 CHECK(status IN ('active','revoked')),
             created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(referring_employer_id, worker_id, job_application_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS reports (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id      INTEGER NOT NULL REFERENCES jobs(id),
+            worker_id   INTEGER NOT NULL REFERENCES users(id),
+            reason      TEXT NOT NULL,
+            notes       TEXT,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS phone_otps (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone       TEXT NOT NULL UNIQUE,
+            code_hash   TEXT NOT NULL,
+            attempts    INTEGER DEFAULT 0,
+            expires_at  TIMESTAMP NOT NULL,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS interviews (

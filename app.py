@@ -1023,6 +1023,90 @@ def api_auth_validate_session():
     return jsonify({'valid': True, 'user': u}), 200
 
 
+# ── Phone OTP (signup verification) ──────────────────────────────────────────
+
+_otp_hits: dict = defaultdict(deque)   # phone/ip key -> deque of timestamps
+OTP_TTL_MINUTES = 10
+OTP_MAX_ATTEMPTS = 5
+
+
+def normalize_phone(raw: str) -> str:
+    """Keep a leading + and digits only. Returns '' if not a plausible phone."""
+    raw = (raw or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not (7 <= len(digits) <= 15):
+        return ""
+    # Default to US country code when none was given
+    if raw.startswith("+"):
+        return "+" + digits
+    if len(digits) == 10:
+        return "+1" + digits
+    return "+" + digits
+
+
+@app.route("/api/auth/send-phone-otp", methods=["POST"])
+def api_send_phone_otp():
+    """Send a 6-digit signup verification code to a phone via Brevo SMS."""
+    data  = request.get_json(force=True)
+    phone = normalize_phone(clean_text(data.get("phone"), 30))
+    if not phone:
+        return jsonify({"error": "Please enter a valid phone number"}), 400
+
+    # 3 sends per phone and per IP per 5 minutes
+    if not _hit(_otp_hits, f"phone:{phone}", 3, window=300.0) or \
+       not _hit(_otp_hits, f"ip:{_client_ip()}", 3, window=300.0):
+        return jsonify({"error": "Too many codes requested. Please wait a few minutes."}), 429
+
+    import secrets as _secrets
+    code = f"{_secrets.randbelow(1_000_000):06d}"
+    expires = datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)
+
+    db = get_db()
+    db.execute(
+        """INSERT INTO phone_otps (phone, code_hash, attempts, expires_at, created_at)
+           VALUES (?, ?, 0, ?, CURRENT_TIMESTAMP)
+           ON CONFLICT(phone) DO UPDATE SET
+               code_hash = excluded.code_hash,
+               attempts = 0,
+               expires_at = excluded.expires_at,
+               created_at = CURRENT_TIMESTAMP""",
+        (phone, generate_password_hash(code), expires),
+    )
+    db.commit()
+
+    from sms_service import send_otp_sms
+    sent = send_otp_sms(phone, code)
+    if not sent:
+        # No Brevo key (dev) or provider error: the code was logged server-side.
+        log.warning("OTP SMS not delivered for %s (see log above)", phone)
+    return jsonify({"sent": sent, "phone": phone})
+
+
+def _check_phone_otp(phone: str, code: str) -> bool:
+    """Validate a signup OTP. Consumes the row on success."""
+    if not phone or not code:
+        return False
+    db  = get_db()
+    row = db.execute("SELECT * FROM phone_otps WHERE phone = ?", (phone,)).fetchone()
+    if not row:
+        return False
+    expires = row["expires_at"]
+    if isinstance(expires, str):
+        try:
+            expires = datetime.fromisoformat(expires)
+        except ValueError:
+            expires = datetime.utcnow() - timedelta(seconds=1)
+    if expires < datetime.utcnow() or row["attempts"] >= OTP_MAX_ATTEMPTS:
+        return False
+    if not check_password_hash(row["code_hash"], code):
+        db.execute("UPDATE phone_otps SET attempts = attempts + 1 WHERE id = ?", (row["id"],))
+        db.commit()
+        return False
+    db.execute("DELETE FROM phone_otps WHERE id = ?", (row["id"],))
+    db.commit()
+    return True
+
+
 @app.route("/api/auth/signup", methods=["POST"])
 def api_auth_signup():
     data = request.get_json(force=True)
@@ -1032,7 +1116,8 @@ def api_auth_signup():
     role            = data.get("role") or ""
     language_pref   = clean_text(data.get("language_pref"), 8) or "en"
     restaurant_name = clean_text(data.get("restaurant_name"), 120)
-    phone           = clean_text(data.get("phone"), 30)
+    phone           = normalize_phone(clean_text(data.get("phone"), 30))
+    phone_otp       = clean_text(data.get("phone_otp"), 6)
     date_of_birth   = clean_text(data.get("date_of_birth"), 10)   # YYYY-MM-DD
     us_state        = clean_text(data.get("us_state"), 2).upper()
     tos_accepted    = bool(data.get("tos_accepted"))
@@ -1048,6 +1133,13 @@ def api_auth_signup():
 
     if not tos_accepted:
         return jsonify({'error': 'Please agree to the Privacy Policy and Terms of Service'}), 400
+
+    if not phone:
+        return jsonify({'error': 'Please enter a valid phone number'}), 400
+
+    if not _check_phone_otp(phone, phone_otp):
+        return jsonify({'error': 'Invalid or expired phone verification code. Please request a new code.',
+                        'phone_otp_invalid': True}), 400
 
     under_18 = False
     if date_of_birth:
@@ -1433,16 +1525,46 @@ def api_employer_update_application_status(app_id):
 
     db      = get_db()
     app_row = db.execute(
-        """SELECT a.*, j.employer_id FROM applications a
-           JOIN jobs j ON j.id = a.job_id WHERE a.id = ?""",
+        """SELECT a.*, j.employer_id, j.title AS job_title,
+                  w.email AS worker_email, w.name AS worker_name,
+                  w.language_pref AS worker_lang,
+                  e.restaurant_name, e.name AS employer_name
+           FROM applications a
+           JOIN jobs j ON j.id = a.job_id
+           JOIN users w ON w.id = a.worker_id
+           JOIN users e ON e.id = j.employer_id
+           WHERE a.id = ?""",
         (app_id,),
     ).fetchone()
 
     if not app_row or app_row["employer_id"] != user["id"]:
         return jsonify({'error': 'Application not found'}), 404
 
+    old_status = app_row["status"]
     db.execute("UPDATE applications SET status = ? WHERE id = ?", (new_status, app_id))
     db.commit()
+
+    # Tell the worker when a decision lands (background thread keeps this fast)
+    if new_status in ("accepted", "rejected") and new_status != old_status:
+        worker_email = app_row["worker_email"]
+        worker_name  = app_row["worker_name"]
+        worker_lang  = app_row["worker_lang"] or "en"
+        job_title    = app_row["job_title"]
+        restaurant   = app_row["restaurant_name"] or app_row["employer_name"]
+
+        def _notify():
+            with app.app_context():
+                try:
+                    from email_service import send_application_decision_email
+                    send_application_decision_email(
+                        worker_email, worker_name, job_title, restaurant,
+                        new_status, worker_lang,
+                    )
+                except Exception:
+                    log.exception("decision email failed for application %s", app_id)
+
+        threading.Thread(target=_notify, daemon=True).start()
+
     return jsonify({'ok': True})
 
 
@@ -1452,10 +1574,13 @@ def api_employer_update_application_status(app_id):
 @api_login_required(role="worker")
 def api_worker_jobs():
     db   = get_db()
+    # Expired listings never show to workers; employers still see them
+    # (labelled "Expired") on their own dashboard.
     jobs = db.execute(
         """SELECT j.*, u.name AS employer_name, u.restaurant_name
            FROM jobs j JOIN users u ON u.id = j.employer_id
            WHERE j.status = 'open'
+             AND (j.expires_at IS NULL OR j.expires_at > CURRENT_TIMESTAMP)
            ORDER BY j.created_at DESC""",
     ).fetchall()
     return jsonify({'jobs': [row_to_dict(j) for j in jobs]})
@@ -2384,6 +2509,35 @@ def api_public_job_detail(job_id):
 
 # ── Job Expiry Management ─────────────────────────────────────────────────────
 
+REPORT_REASONS = ("fake_job", "wrong_pay", "inappropriate", "other")
+
+
+@app.route("/api/jobs/<int:job_id>/report", methods=["POST"])
+@api_login_required(role="worker")
+def api_report_job(job_id):
+    """Store a worker's report about a job listing. No admin UI yet."""
+    user = get_current_user()
+    db   = get_db()
+
+    job = db.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    data   = request.get_json(force=True)
+    reason = clean_text(data.get("reason"), 40)
+    notes  = clean_text(data.get("notes"), 1000)
+
+    if reason not in REPORT_REASONS:
+        return jsonify({"error": "Please choose a reason"}), 400
+
+    db.execute(
+        "INSERT INTO reports (job_id, worker_id, reason, notes) VALUES (?, ?, ?, ?)",
+        (job_id, user["id"], reason, notes or None),
+    )
+    db.commit()
+    return jsonify({"ok": True}), 201
+
+
 @app.route("/api/employer/jobs/<int:job_id>/renew", methods=["POST"])
 @api_login_required(role="employer")
 def api_renew_job(job_id):
@@ -2479,6 +2633,7 @@ def api_worker_search_jobs():
         """SELECT j.*, u.name AS employer_name, u.restaurant_name
            FROM jobs j JOIN users u ON u.id = j.employer_id
            WHERE j.status = 'open'
+             AND (j.expires_at IS NULL OR j.expires_at > CURRENT_TIMESTAMP)
            ORDER BY j.created_at DESC""",
     ).fetchall()
     jobs = [row_to_dict(j) for j in jobs]

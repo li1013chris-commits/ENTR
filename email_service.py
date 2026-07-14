@@ -283,6 +283,151 @@ def send_application_received_email(
     return _send_mail(to_email, subject, body)
 
 
+# Hardcoded accept/decline templates — no API calls, same pattern as the
+# verification emails. {name} worker, {job} job title, {restaurant} restaurant.
+DECISION_EMAIL_TEMPLATES = {
+    "en": {
+        "accepted": {
+            "subject": "Your application was accepted",
+            "body": (
+                "Hi {name},\n\n"
+                "Good news — {restaurant} has accepted your application for {job}. "
+                "They will contact you soon using the contact info you provided.\n\n"
+                "ENTR"
+            ),
+        },
+        "rejected": {
+            "subject": "Update on your application",
+            "body": (
+                "Hi {name},\n\n"
+                "Thank you for applying to {job} at {restaurant}. "
+                "They have decided to move forward with another candidate.\n\n"
+                "ENTR"
+            ),
+        },
+    },
+    "zh": {
+        "accepted": {
+            "subject": "您的申请已被接受",
+            "body": (
+                "您好 {name}，\n\n"
+                "好消息 — {restaurant} 已接受您对 {job} 的申请。"
+                "他们会很快通过您提供的联系方式与您联系。\n\n"
+                "ENTR"
+            ),
+        },
+        "rejected": {
+            "subject": "您的申请有更新",
+            "body": (
+                "您好 {name}，\n\n"
+                "感谢您申请 {restaurant} 的 {job}。"
+                "他们决定选择另一位候选人。\n\n"
+                "ENTR"
+            ),
+        },
+    },
+    "es": {
+        "accepted": {
+            "subject": "Tu solicitud fue aceptada",
+            "body": (
+                "Hola {name}:\n\n"
+                "Buenas noticias — {restaurant} aceptó tu solicitud para {job}. "
+                "Te contactarán pronto usando la información de contacto que diste.\n\n"
+                "ENTR"
+            ),
+        },
+        "rejected": {
+            "subject": "Actualización de tu solicitud",
+            "body": (
+                "Hola {name}:\n\n"
+                "Gracias por postularte a {job} en {restaurant}. "
+                "Decidieron avanzar con otro candidato.\n\n"
+                "ENTR"
+            ),
+        },
+    },
+    "fr": {
+        "accepted": {
+            "subject": "Votre candidature a été acceptée",
+            "body": (
+                "Bonjour {name},\n\n"
+                "Bonne nouvelle — {restaurant} a accepté votre candidature pour {job}. "
+                "Ils vous contacteront bientôt avec les coordonnées que vous avez fournies.\n\n"
+                "ENTR"
+            ),
+        },
+        "rejected": {
+            "subject": "Mise à jour de votre candidature",
+            "body": (
+                "Bonjour {name},\n\n"
+                "Merci d'avoir postulé pour {job} chez {restaurant}. "
+                "Ils ont décidé de poursuivre avec un autre candidat.\n\n"
+                "ENTR"
+            ),
+        },
+    },
+    "pt": {
+        "accepted": {
+            "subject": "Sua inscrição foi aceita",
+            "body": (
+                "Olá, {name}!\n\n"
+                "Boas notícias — {restaurant} aceitou sua inscrição para {job}. "
+                "Eles entrarão em contato em breve usando as informações de contato que você forneceu.\n\n"
+                "ENTR"
+            ),
+        },
+        "rejected": {
+            "subject": "Atualização sobre sua inscrição",
+            "body": (
+                "Olá, {name}!\n\n"
+                "Obrigado por se inscrever para {job} no {restaurant}. "
+                "Eles decidiram seguir com outro candidato.\n\n"
+                "ENTR"
+            ),
+        },
+    },
+    "vi": {
+        "accepted": {
+            "subject": "Đơn ứng tuyển của bạn đã được chấp nhận",
+            "body": (
+                "Chào {name},\n\n"
+                "Tin vui — {restaurant} đã chấp nhận đơn ứng tuyển của bạn cho vị trí {job}. "
+                "Họ sẽ sớm liên hệ với bạn qua thông tin liên hệ bạn đã cung cấp.\n\n"
+                "ENTR"
+            ),
+        },
+        "rejected": {
+            "subject": "Cập nhật về đơn ứng tuyển của bạn",
+            "body": (
+                "Chào {name},\n\n"
+                "Cảm ơn bạn đã ứng tuyển vị trí {job} tại {restaurant}. "
+                "Họ đã quyết định chọn một ứng viên khác.\n\n"
+                "ENTR"
+            ),
+        },
+    },
+}
+
+
+def send_application_decision_email(
+    to_email: str,
+    worker_name: str,
+    job_title: str,
+    restaurant_name: str,
+    decision: str,          # "accepted" | "rejected"
+    lang: str = "en",
+) -> bool:
+    """Tell the worker their application was accepted or declined."""
+    templates = DECISION_EMAIL_TEMPLATES.get(lang, DECISION_EMAIL_TEMPLATES["en"])
+    template = templates.get(decision)
+    if not template:
+        return False
+    body = template["body"].format(
+        name=worker_name, job=job_title, restaurant=restaurant_name
+    )
+    return _send_mail(to_email, template["subject"], body)
+
+
 def send_application_status_email(
     to_email: str,
     worker_name: str,
